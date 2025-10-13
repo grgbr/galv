@@ -1,0 +1,81 @@
+################################################################################
+# SPDX-License-Identifier: LGPL-3.0-only
+#
+# This file is part of Galv.
+# Copyright (C) 2017-2025 Grégor Boirie <gregor.boirie@free.fr>
+################################################################################
+
+config GALV_ASSERT_API
+	bool "API assertion"
+	default n
+	help
+	  Build Galv library with high-level API assertions enabled to ensure
+	  that API functions exposed by Utils will perform full verification of
+	  arguments consistency.
+
+config GALV_ASSERT_INTERN
+	bool "Internal assertion"
+	select GALV_ASSERT_API
+	default n
+	help
+	  Build Galv library with internal assertions enabled.
+
+config GALV_LOG
+	bool "Logging"
+	default y
+	help
+	  Build Galv library with internal logging support enabled.
+
+config GALV_DEBUG
+	bool "Debug"
+	default n
+	select GALV_LOG
+	help
+	  Build Galv library with internal debug logging support enabled.
+
+config GALV_UTEST
+	bool "Unit tests"
+	default n
+	help
+	  Build Galv library unit test suite.
+
+config GALV_FABRIC
+	bool "Connection fabric"
+	default n
+	help
+	  Build Galv library with support for connection fabric (allocator).
+
+config GALV_REPO
+	bool "Connection repository"
+	default n
+	help
+	  Build Galv library with support for connection repository.
+
+config GALV_UNIX_CONN
+	bool "Unix socket connection"
+	default y
+	help
+	  Build Galv library with Unix socket based connection support.
+
+config GALV_UNIX_CONN_GATE
+	bool "Unix socket gate"
+	depends on GALV_UNIX_CONN
+	default n
+	help
+	  Build Galv library with Unix socket based connection filtering
+          support.
+
+config GALV_UNIX_CONN_GATE_HASH_RATIO
+	int "Unix socket gate hash fill ratio"
+	depends on GALV_UNIX_CONN_GATE
+	default 70
+	help
+	  Unix socket based connection filtering hash table targeted fill ratio.
+
+config GALV_UNIX_CONN_GATE_HASH_BITS
+	int "Unix socket gate hash log size"
+	depends on GALV_UNIX_CONN_GATE
+	default 8
+	help
+	  Logarithm base 2 of number of buckets of Unix socket based connection
+	  filtering hash table.
