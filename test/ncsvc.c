@@ -6,6 +6,7 @@
  ******************************************************************************/
 
 #include "ncsvc.h"
+#include "utest.h"
 #include "galv/acceptor.h"
 
 void
@@ -106,8 +107,14 @@ galvut_ncsvc_on_connecting(struct galv_conn * __restrict   conn,
 
 		galv_conn_switch_state(conn, GALV_CONN_ESTABLISHED_STATE);
 
+		galvut_debug("unix:ncsvc: connection established");
+
 		return 0;
 	}
+
+	galvut_warn("unix:ncsvc: failed to enable connection polling: %s (%d)",
+	            strerror(-err),
+	            -err);
 
 	return err;
 }

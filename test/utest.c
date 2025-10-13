@@ -6,8 +6,6 @@
  ******************************************************************************/
 
 #include "utest.h"
-#include "galv/cdefs.h"
-#include <elog/elog.h>
 #include <cute/cute.h>
 #include <cute/expect.h>
 #include <stdio.h>
@@ -155,7 +153,7 @@ static const struct elog_stdio_conf galvut_log_cfg = {
 	.format         = ELOG_TAG_FMT
 };
 
-static struct elog_stdio galvut_log;
+struct elog_stdio galvut_log;
 
 int
 main(int argc, char * const argv[])

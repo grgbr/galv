@@ -13,15 +13,18 @@ galv_acceptor_reject_conn(const struct galv_acceptor * __restrict acceptor)
 		ret = etux_sock_close(ret);
 
 	switch (ret) {
+	case -EAGAIN:  /* No more connection to accept(2). */
 	case -EINTR:   /* Give caller a way to react when system / process */
 	case -EMFILE:  /* resource limits are reached. */
 	case -ENFILE:
 	case -ENOBUFS:
 	case -ENOMEM:
 		return ret;
+	default:
+		return 0;
 	}
 
-	return 0;
+	unreachable();
 }
 
 int

@@ -59,6 +59,10 @@ galv_unix_conn_accept(struct galv_unix_conn * __restrict      conn,
 		return 0;
 	}
 
+	galv_debug("unix: failed to accept connection request: %s (%d)",
+	           strerror(-fd),
+	           -fd);
+
 	return fd;
 }
 
@@ -104,7 +108,7 @@ galv_unix_acceptor_dispatch(struct upoll_worker * worker,
 		 * Nothing specific to do as next syscall called with our socket
 		 * fd as argument should return the error as errno...
 		 */
-		galv_info("unix:acceptor: socket error ignored");
+		galv_notice("unix:acceptor: socket error ignored");
 		ret = 0;
 	}
 
@@ -113,6 +117,9 @@ galv_unix_acceptor_dispatch(struct upoll_worker * worker,
 			ret = galv_acceptor_on_accept_conn(&unacc->base,
 			                                   events,
 			                                   poller);
+			if (!ret)
+				galv_debug("unix:acceptor: "
+				           "connection request processed");
 		} while (!ret);
 
 		switch (ret) {
@@ -127,7 +134,7 @@ galv_unix_acceptor_dispatch(struct upoll_worker * worker,
 
 		case -ENFILE: /* Too many open files in system. */
 			galv_warn("unix:acceptor: "
-			          "failed to process new connection: "
+			          "failed to process connection request: "
 			          "%s (%d)",
 			          strerror(ENFILE),
 			          ENFILE);
@@ -135,7 +142,7 @@ galv_unix_acceptor_dispatch(struct upoll_worker * worker,
 
 		default:
 			galv_notice("unix:acceptor: "
-			            "failed to process new connection: "
+			            "failed to process connection request: "
 			            "%s (%d)",
 			            strerror(-ret),
 			            -ret);
@@ -213,6 +220,8 @@ galv_unix_acceptor_open(struct galv_unix_acceptor * __restrict      acceptor,
 	if (ret)
 		goto unlink;
 
+	galv_debug("unix:acceptor: opened");
+
 	return 0;
 
 unlink:
@@ -236,7 +245,18 @@ galv_unix_acceptor_close(const struct galv_unix_acceptor * __restrict acceptor,
 	galv_unix_assert_acceptor_api(acceptor);
 	galv_assert_api(poller);
 
+	int ret;
+
 	unlink(acceptor->bind_addr.sun_path);
 
-	return galv_acceptor_close(&acceptor->base, poller);
+	ret = galv_acceptor_close(&acceptor->base, poller);
+	if (ret && (ret != -EINTR))
+		galv_notice("unix:acceptor: unexpected close return code: "
+		            "%s (%d)",
+		            strerror(-ret),
+		            -ret);
+
+	galv_debug("unix:acceptor: closed");
+
+	return ret;
 }
