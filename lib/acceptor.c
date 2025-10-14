@@ -2,32 +2,6 @@
 #include <utils/sock.h>
 
 int
-galv_acceptor_reject_conn(const struct galv_acceptor * __restrict acceptor)
-{
-	galv_acceptor_assert_iface_api(acceptor);
-
-	int ret;
-
-	ret = etux_sock_accept(acceptor->fd, NULL, NULL, 0);
-	if (ret >= 0)
-		ret = etux_sock_close(ret);
-
-	switch (ret) {
-	case -EAGAIN:  /* No more connection to accept(2). */
-	case -EINTR:   /* Give caller a way to react when system / process */
-	case -EMFILE:  /* resource limits are reached. */
-	case -ENFILE:
-	case -ENOBUFS:
-	case -ENOMEM:
-		return ret;
-	default:
-		return 0;
-	}
-
-	unreachable();
-}
-
-int
 galv_acceptor_turn_on(struct galv_acceptor * __restrict           acceptor,
                       int                                         fd,
                       int                                         backlog,

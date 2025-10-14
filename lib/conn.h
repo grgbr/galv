@@ -21,8 +21,8 @@
 static inline
 void
 galv_conn_setup(struct galv_conn * __restrict           conn,
-                struct galv_acceptor * __restrict       acceptor,
                 int                                     fd,
+                struct galv_acceptor * __restrict       acceptor,
                 const struct galv_conn_ops * __restrict ops)
 {
 	galv_assert_intern(conn);

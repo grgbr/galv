@@ -26,68 +26,42 @@ galvut_unix_ncsvc_on_accept(struct galv_acceptor * __restrict acceptor,
                             uint32_t                          events __unused,
                             const struct upoll * __restrict   poller)
 {
+	struct galv_unix_acceptor *         unacc =
+		(struct galv_unix_acceptor *)acceptor;
+	struct galv_unix_attrs              attrs;
+	int                                 fd;
 	const struct galvut_ncsvc_context * ctx;
 	struct galv_unix_conn *             conn;
 	int                                 err;
 
+	fd = galv_unix_acceptor_grab(unacc, &attrs, SOCK_CLOEXEC);
+	if (fd < 0)
+		return fd;
+
 	ctx = galv_acceptor_context(acceptor);
 	if (galv_conn_repo_full(&ctx->conns)) {
-		err = galv_acceptor_reject_conn(acceptor);
-		if (err != -EAGAIN)
-			galvut_notice("unix:ncsvc: "
-			              "connection request rejected: "
-			              "max number of connections reached");
-		return err;
+		err = -EPERM;
+		goto close;
 	}
 
 	conn = malloc(sizeof(*conn));
 	if (!conn) {
-		/*
-		 * When a connection request cannot be handled, we accept() and
-		 * close() it. Otherwise, it would sit in the kernel listen
-		 * backlog till next call to accept().
-		 */
-		galv_acceptor_reject_conn(acceptor);
-		return -ENOMEM;
+		err = -ENOMEM;
+		goto close;
 	}
 
-	err = galv_unix_conn_accept(conn,
-	                            acceptor,
-	                            SOCK_CLOEXEC,
-	                            &galvut_ncsvc_ops);
-	if (err) {
-		if (err == -ECONNABORTED)
-			/*
-			 * Connection has been aborted: ignore and tell caller
-			 * to keep processing connection requests normally.
-			 */
-			err = 0;
-		goto free;
-	}
+	galv_unix_conn_setup(conn, fd, unacc, &galvut_ncsvc_ops, &attrs);
 
 	err = galv_conn_on_connecting(&conn->base, 0, poller);
-	switch (err) {
-	case 0:
-		break;
-
-	case -ENOMEM: /* No more memory. */
-		goto close;
-
-	case -ENOSPC: /* Cannot register new fd to poll loop. */
-		goto close;
-
-	default:
-		/* Ensure poll loop keeps processing events. */
-		err = 0;
-		goto close;
-	}
+	if (err)
+		goto free;
 
 	return 0;
 
-close:
-	galv_conn_complete_close(&conn->base);
 free:
 	free(conn);
+close:
+	etux_sock_close(fd);
 
 	return err;
 }
@@ -345,57 +319,99 @@ CUTE_TEST(galvut_unix_ncsvc_open_shutrd)
 		0);
 }
 
-#if 0
 CUTE_TEST(galvut_unix_ncsvc_open_shutwr)
 {
-	int                           ret;
-	struct galvut_unix_ncsvc_test test =
-		GALVUT_UNIX_NCSVC_TEST_SETUP(test, SOCK_SEQPACKET, 1);
+	int ret;
+	int clnt;
 
-	ret = galvut_unix_ncsvc_test_open(&test);
+	/* Open netcat service. */
+	galvut_unix_ncsvc_test_setup(SOCK_SEQPACKET, 1);
+
+	/* Open netcat client connection. */
+	clnt = galvut_unix_ncsvc_connect_clnt(
+		galvut_unix_ncsvc_the_test.sock_type);
+	cute_check_sint(clnt, greater_equal, 0);
+
+	/* Let netcat service accept connection. */
+	ret = galvut_unix_ncsvc_test_process(&galvut_unix_ncsvc_the_test);
+	cute_check_sint(ret, equal, 0);
+	cute_check_uint(
+		galv_conn_repo_count(&galvut_unix_ncsvc_the_test.ctx.conns),
+		equal,
+		1);
+
+	/* Perform a local read end closure. */
+	unsk_shutdown(clnt, SHUT_WR);
+
+	ret = galvut_unix_ncsvc_test_process(&galvut_unix_ncsvc_the_test);
 	cute_check_sint(ret, equal, 0);
 
-	unsk_shutdown(test.clnt, SHUT_WR);
+	/* Close netcat client connection. */
+	galvut_unix_ncsvc_close_clnt(clnt);
 
-	galvut_unix_ncsvc_test_close(&test);
+	/* Let netcat service close connection. */
+	ret = galvut_unix_ncsvc_test_process(&galvut_unix_ncsvc_the_test);
+	cute_check_sint(ret, equal, 0);
+	cute_check_uint(
+		galv_conn_repo_count(&galvut_unix_ncsvc_the_test.ctx.conns),
+		equal,
+		0);
 }
 
 CUTE_TEST(galvut_unix_ncsvc_open_send_one_close)
 {
-	int                           ret;
-	ssize_t                       sz;
-	struct galvut_unix_ncsvc_test test =
-		GALVUT_UNIX_NCSVC_TEST_SETUP(test, SOCK_SEQPACKET, 1);
+	int     ret;
+	int     clnt;
+	ssize_t sz;
 
-	ret = galvut_unix_ncsvc_test_open(&test);
+	/* Open netcat service. */
+	galvut_unix_ncsvc_test_setup(SOCK_SEQPACKET, 1);
+
+	/* Open netcat client connection. */
+	clnt = galvut_unix_ncsvc_connect_clnt(
+		galvut_unix_ncsvc_the_test.sock_type);
+	cute_check_sint(clnt, greater_equal, 0);
+
+	/* Let netcat service accept connection. */
+	ret = galvut_unix_ncsvc_test_process(&galvut_unix_ncsvc_the_test);
 	cute_check_sint(ret, equal, 0);
+	cute_check_uint(
+		galv_conn_repo_count(&galvut_unix_ncsvc_the_test.ctx.conns),
+		equal,
+		1);
 
-	sz = unsk_send(test.clnt, "msg0", sizeof("msg0"), MSG_NOSIGNAL);
-
-	/* Let ncsvc service accept connection. */
-	ret = galvut_unix_ncsvc_test_process(&test);
-	/* Let ncsvc service receive message. */
-	ret = galvut_unix_ncsvc_test_process(&test);
-
-	galvut_unix_ncsvc_test_close(&test);
-
+	/* Send a simple message. */
+	sz = unsk_send(clnt, "msg0", sizeof("msg0"), MSG_NOSIGNAL);
 	cute_check_sint(sz, equal, sizeof("msg0"));
-	cute_check_sint(ret, equal, 0);
-	cute_check_uint(test.ctx.msg_cnt, equal, 1);
-	cute_check_str(test.ctx.msgs[0], equal, "msg0");
 
-	cute_check_uint(galv_conn_repo_count(&test.ctx.conns), equal, 0);
-	cute_check_bool(galv_conn_repo_empty(&test.ctx.conns), is, true);
+	/* Let netcat service receive the message. */
+	ret = galvut_unix_ncsvc_test_process(&galvut_unix_ncsvc_the_test);
+	cute_check_sint(ret, equal, 0);
+	cute_check_uint(
+		galv_conn_repo_count(&galvut_unix_ncsvc_the_test.ctx.conns),
+		equal,
+		1);
+
+	/* Close netcat client connection. */
+	galvut_unix_ncsvc_close_clnt(clnt);
+
+	/* Let netcat service close connection. */
+	ret = galvut_unix_ncsvc_test_process(&galvut_unix_ncsvc_the_test);
+	cute_check_sint(ret, equal, 0);
+	cute_check_uint(
+		galv_conn_repo_count(&galvut_unix_ncsvc_the_test.ctx.conns),
+		equal,
+		0);
+
+	cute_check_uint(galvut_unix_ncsvc_the_test.ctx.msg_cnt, equal, 1);
+	cute_check_str(galvut_unix_ncsvc_the_test.ctx.msgs[0], equal, "msg0");
 }
-#endif
 
 CUTE_GROUP(galvut_unix_ncsvc_group) = {
 	CUTE_REF(galvut_unix_ncsvc_open_close),
 	CUTE_REF(galvut_unix_ncsvc_open_shutrd),
-#if 0
 	CUTE_REF(galvut_unix_ncsvc_open_shutwr),
 	CUTE_REF(galvut_unix_ncsvc_open_send_one_close),
-#endif
 };
 
 CUTE_SUITE_STATIC(galvut_unix_ncsvc_suite,

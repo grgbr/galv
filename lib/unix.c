@@ -14,56 +14,15 @@
  * Asynchronous unix connection handling
  ******************************************************************************/
 
-static
-int
-galv_unix_accept(int                                 listen,
-                 struct galv_unix_attrs * __restrict attrs,
-                 int                                 flags)
+void
+galv_unix_conn_setup(struct galv_unix_conn * __restrict        conn,
+                     int                                       fd,
+                     struct galv_unix_acceptor * __restrict    acceptor,
+                     const struct galv_conn_ops * __restrict   ops,
+                     const struct galv_unix_attrs * __restrict attrs)
 {
-	galv_assert_intern(listen >= 0);
-	galv_assert_intern(attrs);
-	galv_assert_intern(!(flags & ~(SOCK_NONBLOCK | SOCK_CLOEXEC)));
-
-	int       fd;
-	socklen_t sz = sizeof(attrs->peer_cred);
-
-	attrs->peer_size = sizeof(attrs->peer_addr);
-	fd = unsk_accept(listen, &attrs->peer_addr, &attrs->peer_size, flags);
-	if (fd < 0)
-		return fd;
-
-	unsk_getsockopt(fd, SO_PEERCRED, &attrs->peer_cred, &sz);
-	galv_assert_intern(sz == sizeof(attrs->peer_cred));
-
-	return fd;
-}
-
-int
-galv_unix_conn_accept(struct galv_unix_conn * __restrict      conn,
-                      struct galv_acceptor * __restrict       acceptor,
-                      int                                     flags,
-                      const struct galv_conn_ops * __restrict ops)
-{
-	galv_assert_api(conn);
-	galv_acceptor_assert_iface_api(acceptor);
-	galv_assert_api(!(flags & ~(SOCK_NONBLOCK | SOCK_CLOEXEC)));
-	galv_conn_assert_ops_api(ops);
-
-	int fd;
-	
-	fd = galv_unix_accept(acceptor->fd,
-	                      &conn->attrs,
-	                      SOCK_NONBLOCK | flags);
-	if (fd >= 0) {
-		galv_conn_setup(&conn->base, acceptor, fd, ops);
-		return 0;
-	}
-
-	galv_debug("unix: failed to accept connection request: %s (%d)",
-	           strerror(-fd),
-	           -fd);
-
-	return fd;
+	galv_conn_setup(&conn->base, fd, &acceptor->base, ops);
+	conn->attrs = *attrs;
 }
 
 /******************************************************************************
@@ -86,6 +45,32 @@ galv_unix_conn_accept(struct galv_unix_conn * __restrict      conn,
 	galv_assert_intern( \
 		!unsk_is_named_path_ok((_accept)->bind_addr.sun_path))
 
+int
+galv_unix_acceptor_grab(const struct galv_unix_acceptor * __restrict acceptor,
+                        struct galv_unix_attrs * __restrict          attrs,
+                        int                                          flags)
+{
+	galv_unix_assert_acceptor_api(acceptor);
+	galv_assert_intern(attrs);
+	galv_assert_intern(!(flags & ~(SOCK_NONBLOCK | SOCK_CLOEXEC)));
+
+	int       fd;
+	socklen_t sz = sizeof(attrs->peer_cred);
+
+	attrs->peer_size = sizeof(attrs->peer_addr);
+	fd = unsk_accept(acceptor->base.fd,
+	                 &attrs->peer_addr,
+	                 &attrs->peer_size,
+	                 flags);
+	if (fd < 0)
+		return fd;
+
+	unsk_getsockopt(fd, SO_PEERCRED, &attrs->peer_cred, &sz);
+	galv_assert_intern(sz == sizeof(attrs->peer_cred));
+
+	return fd;
+}
+
 static
 int
 galv_unix_acceptor_dispatch(struct upoll_worker * worker,
@@ -98,7 +83,6 @@ galv_unix_acceptor_dispatch(struct upoll_worker * worker,
 	galv_assert_intern(poller);
 
 	struct galv_unix_acceptor * unacc;
-	int                         ret;
 
 	unacc = containerof(worker, struct galv_unix_acceptor, base.work);
 	galv_unix_assert_acceptor_intern(unacc);
@@ -109,20 +93,22 @@ galv_unix_acceptor_dispatch(struct upoll_worker * worker,
 		 * fd as argument should return the error as errno...
 		 */
 		galv_notice("unix:acceptor: socket error ignored");
-		ret = 0;
+
+		if (!(events & EPOLLIN))
+			return 0;
 	}
 
-	if (events & EPOLLIN) {
-		do {
-			ret = galv_acceptor_on_accept_conn(&unacc->base,
-			                                   events,
-			                                   poller);
-			if (!ret)
-				galv_debug("unix:acceptor: "
-				           "connection request processed");
-		} while (!ret);
+	/* events & EPOLLIN is true. */
+	while (true) {
+		int ret;
 
+		ret = galv_acceptor_on_accept_conn(&unacc->base,
+		                                   events,
+		                                   poller);
 		switch (ret) {
+		case 0:
+			break;
+
 		case -EAGAIN: /* All queued connection requests processed. */
 			upoll_enable_watch(&unacc->base.work, EPOLLIN);
 			upoll_apply(poller, unacc->base.fd, &unacc->base.work);
@@ -132,27 +118,26 @@ galv_unix_acceptor_dispatch(struct upoll_worker * worker,
 		case -ENOMEM: /* No more memory available. */
 			return ret;
 
+		case -EMFILE: /* Too many open files by process. */
 		case -ENFILE: /* Too many open files in system. */
 			galv_warn("unix:acceptor: "
-			          "failed to process connection request: "
+			          "cannot process connection request: "
 			          "%s (%d)",
-			          strerror(ENFILE),
-			          ENFILE);
+			          strerror(-ret),
+			          -ret);
 			return ret;
 
 		default:
 			galv_notice("unix:acceptor: "
-			            "failed to process connection request: "
+			            "cannot process connection request: "
 			            "%s (%d)",
 			            strerror(-ret),
 			            -ret);
-			return 0;
+			break;
 		}
-
-		unreachable();
 	}
 
-	return ret;
+	unreachable();
 }
 
 int
@@ -220,8 +205,6 @@ galv_unix_acceptor_open(struct galv_unix_acceptor * __restrict      acceptor,
 	if (ret)
 		goto unlink;
 
-	galv_debug("unix:acceptor: opened");
-
 	return 0;
 
 unlink:
@@ -255,8 +238,6 @@ galv_unix_acceptor_close(const struct galv_unix_acceptor * __restrict acceptor,
 		            "%s (%d)",
 		            strerror(-ret),
 		            -ret);
-
-	galv_debug("unix:acceptor: closed");
 
 	return ret;
 }

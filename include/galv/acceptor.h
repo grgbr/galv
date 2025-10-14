@@ -60,10 +60,6 @@ galv_acceptor_context(const struct galv_acceptor * __restrict acceptor)
 }
 
 extern int
-galv_acceptor_reject_conn(const struct galv_acceptor * __restrict acceptor)
-	__export_public;
-
-extern int
 galv_acceptor_close(const struct galv_acceptor * __restrict acceptor,
                     const struct upoll * __restrict         poller);
 

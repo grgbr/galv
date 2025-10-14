@@ -13,6 +13,8 @@
 #include <sys/un.h>
 #include <sys/socket.h>
 
+struct galv_unix_acceptor;
+
 /******************************************************************************
  * Asynchronous unix connection handling
  ******************************************************************************/
@@ -37,24 +39,29 @@ galv_unix_conn_from_worker(const struct upoll_worker * __restrict worker)
 	return containerof(worker, struct galv_unix_conn, base.work);
 }
 
-extern int
-galv_unix_conn_accept(struct galv_unix_conn * __restrict      conn,
-                      struct galv_acceptor * __restrict       acceptor,
-                      int                                     flags,
-                      const struct galv_conn_ops * __restrict ops)
+extern void
+galv_unix_conn_setup(struct galv_unix_conn * __restrict        conn,
+                     int                                       fd,
+                     struct galv_unix_acceptor * __restrict    acceptor,
+                     const struct galv_conn_ops * __restrict   ops,
+                     const struct galv_unix_attrs * __restrict attrs)
 	__export_public;
 
 /******************************************************************************
  * Asynchronous unix connection acceptor handling
  ******************************************************************************/
 
-struct galv_unix_acceptor;
-
 struct galv_unix_acceptor {
 	struct galv_acceptor base;
 	socklen_t            bind_size;
 	struct sockaddr_un   bind_addr;
 };
+
+extern int
+galv_unix_acceptor_grab(const struct galv_unix_acceptor * __restrict acceptor,
+                        struct galv_unix_attrs * __restrict          attrs,
+                        int                                          flags)
+	__export_public;
 
 extern int
 galv_unix_acceptor_open(struct galv_unix_acceptor * __restrict      acceptor,
