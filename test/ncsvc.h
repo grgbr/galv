@@ -12,6 +12,9 @@
 #include "galv/repo.h"
 
 #define GALVUT_NCSVC_MSG_NR       (16U)
+#if GALVUT_NCSVC_MSG_NR >= 1000
+#error Cannot process more than 1000 messages !
+#endif /* GALVUT_NCSVC_MSG_NR >= 1000 */
 #define GALVUT_NCSVC_MSG_SIZE_MAX (8U)
 #define GALVUT_NCSVC_CONN_NR      (5U)
 #define GALVUT_NCSVC_BACKLOG      (2)

@@ -407,11 +407,194 @@ CUTE_TEST(galvut_unix_ncsvc_open_send_one_close)
 	cute_check_str(galvut_unix_ncsvc_the_test.ctx.msgs[0], equal, "msg0");
 }
 
+CUTE_TEST(galvut_unix_ncsvc_open_send_one_shutrd)
+{
+	int     ret;
+	int     clnt;
+	ssize_t sz;
+
+	/* Open netcat service. */
+	galvut_unix_ncsvc_test_setup(SOCK_SEQPACKET, 1);
+
+	/* Open netcat client connection. */
+	clnt = galvut_unix_ncsvc_connect_clnt(
+		galvut_unix_ncsvc_the_test.sock_type);
+	cute_check_sint(clnt, greater_equal, 0);
+
+	/* Let netcat service accept connection. */
+	ret = galvut_unix_ncsvc_test_process(&galvut_unix_ncsvc_the_test);
+	cute_check_sint(ret, equal, 0);
+	cute_check_uint(
+		galv_conn_repo_count(&galvut_unix_ncsvc_the_test.ctx.conns),
+		equal,
+		1);
+
+	/* Send a simple message. */
+	sz = unsk_send(clnt, "msg0", sizeof("msg0"), MSG_NOSIGNAL);
+	cute_check_sint(sz, equal, sizeof("msg0"));
+
+	/* Perform a local read end closure. */
+	unsk_shutdown(clnt, SHUT_RD);
+
+	/* Let netcat service receive the message. */
+	ret = galvut_unix_ncsvc_test_process(&galvut_unix_ncsvc_the_test);
+	cute_check_sint(ret, equal, 0);
+	cute_check_uint(
+		galv_conn_repo_count(&galvut_unix_ncsvc_the_test.ctx.conns),
+		equal,
+		1);
+
+	/* Close netcat client connection. */
+	galvut_unix_ncsvc_close_clnt(clnt);
+
+	/* Let netcat service close connection. */
+	ret = galvut_unix_ncsvc_test_process(&galvut_unix_ncsvc_the_test);
+	cute_check_sint(ret, equal, 0);
+	cute_check_uint(
+		galv_conn_repo_count(&galvut_unix_ncsvc_the_test.ctx.conns),
+		equal,
+		0);
+
+	cute_check_uint(galvut_unix_ncsvc_the_test.ctx.msg_cnt, equal, 1);
+	cute_check_str(galvut_unix_ncsvc_the_test.ctx.msgs[0], equal, "msg0");
+}
+
+CUTE_TEST(galvut_unix_ncsvc_open_send_one_shutwr)
+{
+	int     ret;
+	int     clnt;
+	ssize_t sz;
+
+	/* Open netcat service. */
+	galvut_unix_ncsvc_test_setup(SOCK_SEQPACKET, 1);
+
+	/* Open netcat client connection. */
+	clnt = galvut_unix_ncsvc_connect_clnt(
+		galvut_unix_ncsvc_the_test.sock_type);
+	cute_check_sint(clnt, greater_equal, 0);
+
+	/* Let netcat service accept connection. */
+	ret = galvut_unix_ncsvc_test_process(&galvut_unix_ncsvc_the_test);
+	cute_check_sint(ret, equal, 0);
+	cute_check_uint(
+		galv_conn_repo_count(&galvut_unix_ncsvc_the_test.ctx.conns),
+		equal,
+		1);
+
+	/* Send a simple message. */
+	sz = unsk_send(clnt, "msg0", sizeof("msg0"), MSG_NOSIGNAL);
+	cute_check_sint(sz, equal, sizeof("msg0"));
+
+	/* Perform a local read end closure. */
+	unsk_shutdown(clnt, SHUT_WR);
+
+	/* Let netcat service receive the message. */
+	ret = galvut_unix_ncsvc_test_process(&galvut_unix_ncsvc_the_test);
+	cute_check_sint(ret, equal, 0);
+	cute_check_uint(
+		galv_conn_repo_count(&galvut_unix_ncsvc_the_test.ctx.conns),
+		equal,
+		1);
+
+	/* Close netcat client connection. */
+	galvut_unix_ncsvc_close_clnt(clnt);
+
+	/* Let netcat service close connection. */
+	ret = galvut_unix_ncsvc_test_process(&galvut_unix_ncsvc_the_test);
+	cute_check_sint(ret, equal, 0);
+	cute_check_uint(
+		galv_conn_repo_count(&galvut_unix_ncsvc_the_test.ctx.conns),
+		equal,
+		0);
+
+	cute_check_uint(galvut_unix_ncsvc_the_test.ctx.msg_cnt, equal, 1);
+	cute_check_str(galvut_unix_ncsvc_the_test.ctx.msgs[0], equal, "msg0");
+}
+
+
+static
+void
+galvut_unix_ncsvc_send_bulk(int sk, unsigned int nr)
+{
+	cute_check_sint(sk, greater_equal, 0);
+	cute_check_uint(nr, greater, 0);
+	cute_check_uint(nr, lower_equal, GALVUT_NCSVC_MSG_NR);
+
+	ssize_t      ret;
+	char         buff[] = "msgxxx";
+	unsigned int cnt;
+
+	for (cnt = 0; cnt < nr; cnt++) {
+		sprintf(buff, "msg%03u", cnt);
+		ret = unsk_send(sk, buff, sizeof(buff), MSG_NOSIGNAL);
+		cute_check_sint(ret, equal, (ssize_t)sizeof(buff));
+	}
+}
+
+CUTE_TEST(galvut_unix_ncsvc_open_send_bulk_close)
+{
+	int          ret;
+	int          clnt;
+	unsigned int m;
+
+	/* Open netcat service. */
+	galvut_unix_ncsvc_test_setup(SOCK_SEQPACKET, GALVUT_NCSVC_MSG_NR);
+
+	/* Open netcat client connection. */
+	clnt = galvut_unix_ncsvc_connect_clnt(
+		galvut_unix_ncsvc_the_test.sock_type);
+	cute_check_sint(clnt, greater_equal, 0);
+
+	/* Let netcat service accept connection. */
+	ret = galvut_unix_ncsvc_test_process(&galvut_unix_ncsvc_the_test);
+	cute_check_sint(ret, equal, 0);
+	cute_check_uint(
+		galv_conn_repo_count(&galvut_unix_ncsvc_the_test.ctx.conns),
+		equal,
+		1);
+
+	/* Send a multiple messages. */
+	galvut_unix_ncsvc_send_bulk(clnt, GALVUT_NCSVC_MSG_NR);
+
+	/* Let netcat service receive messages. */
+	ret = galvut_unix_ncsvc_test_process(&galvut_unix_ncsvc_the_test);
+	cute_check_sint(ret, equal, 0);
+	cute_check_uint(
+		galv_conn_repo_count(&galvut_unix_ncsvc_the_test.ctx.conns),
+		equal,
+		1);
+
+	/* Close netcat client connection. */
+	galvut_unix_ncsvc_close_clnt(clnt);
+
+	/* Let netcat service close connection. */
+	ret = galvut_unix_ncsvc_test_process(&galvut_unix_ncsvc_the_test);
+	cute_check_sint(ret, equal, 0);
+	cute_check_uint(
+		galv_conn_repo_count(&galvut_unix_ncsvc_the_test.ctx.conns),
+		equal,
+		0);
+
+	cute_check_uint(galvut_unix_ncsvc_the_test.ctx.msg_cnt,
+	                equal,
+	                GALVUT_NCSVC_MSG_NR);
+	for (m = 0; m < galvut_unix_ncsvc_the_test.ctx.msg_cnt; m++) {
+		char         ref[] = "msgxxx";
+		const char * str = galvut_unix_ncsvc_the_test.ctx.msgs[m];
+
+		sprintf(ref, "msg%03u", m);
+		cute_check_str(str, equal, ref);
+	}
+}
+
 CUTE_GROUP(galvut_unix_ncsvc_group) = {
 	CUTE_REF(galvut_unix_ncsvc_open_close),
 	CUTE_REF(galvut_unix_ncsvc_open_shutrd),
 	CUTE_REF(galvut_unix_ncsvc_open_shutwr),
 	CUTE_REF(galvut_unix_ncsvc_open_send_one_close),
+	CUTE_REF(galvut_unix_ncsvc_open_send_one_shutrd),
+	CUTE_REF(galvut_unix_ncsvc_open_send_one_shutwr),
+	CUTE_REF(galvut_unix_ncsvc_open_send_bulk_close),
 };
 
 CUTE_SUITE_STATIC(galvut_unix_ncsvc_suite,

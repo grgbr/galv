@@ -8,6 +8,7 @@
 #include "ncsvc.h"
 #include "utest.h"
 #include "galv/acceptor.h"
+#include "cute/check.h"
 
 void
 galvut_ncsvc_setup_ctx(struct galvut_ncsvc_context * __restrict context,
@@ -35,6 +36,7 @@ galvut_ncsvc_process_msg(struct galv_conn * __restrict   conn,
 	ctx = galv_acceptor_context(accept);
 	cnt = ctx->bulk_cnt;
 
+#warning FIXME! Make sure that no more than GALVUT_NCSVC_MSG_NR messages are processed
 	/* Get at most ctx->bulk_cnt messages in a row. */
 	do {
 		ret = galv_conn_recv(conn,
