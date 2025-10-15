@@ -236,15 +236,7 @@ static
 void
 galvut_unix_ncsvc_test_teardown(void)
 {
-	int          ret;
-	unsigned int cnt;
-
-	cnt = galv_conn_repo_count(&galvut_unix_ncsvc_the_test.ctx.conns);
-
-	ret = galvut_unix_ncsvc_test_close(&galvut_unix_ncsvc_the_test);
-
-	cute_check_uint(cnt, equal, 0);
-	cute_check_sint(ret, equal, 0);
+	galvut_unix_ncsvc_test_close(&galvut_unix_ncsvc_the_test);
 }
 
 CUTE_TEST(galvut_unix_ncsvc_open_close)
@@ -511,7 +503,6 @@ CUTE_TEST(galvut_unix_ncsvc_open_send_one_shutwr)
 	cute_check_str(galvut_unix_ncsvc_the_test.ctx.msgs[0], equal, "msg0");
 }
 
-
 static
 void
 galvut_unix_ncsvc_send_bulk(int sk, unsigned int nr)
@@ -525,13 +516,15 @@ galvut_unix_ncsvc_send_bulk(int sk, unsigned int nr)
 	unsigned int cnt;
 
 	for (cnt = 0; cnt < nr; cnt++) {
+STROLL_IGNORE_WARN("-Wformat-overflow")
 		sprintf(buff, "msg%03u", cnt);
+STROLL_RESTORE_WARN
 		ret = unsk_send(sk, buff, sizeof(buff), MSG_NOSIGNAL);
 		cute_check_sint(ret, equal, (ssize_t)sizeof(buff));
 	}
 }
 
-CUTE_TEST(galvut_unix_ncsvc_open_send_bulk_close)
+CUTE_TEST(galvut_unix_ncsvc_send_bulk_full)
 {
 	int          ret;
 	int          clnt;
@@ -582,7 +575,73 @@ CUTE_TEST(galvut_unix_ncsvc_open_send_bulk_close)
 		char         ref[] = "msgxxx";
 		const char * str = galvut_unix_ncsvc_the_test.ctx.msgs[m];
 
+STROLL_IGNORE_WARN("-Wformat-overflow")
 		sprintf(ref, "msg%03u", m);
+STROLL_RESTORE_WARN
+		cute_check_str(str, equal, ref);
+	}
+}
+
+CUTE_TEST(galvut_unix_ncsvc_send_bulk_partial)
+{
+	int          ret;
+	int          clnt;
+	unsigned int m;
+	unsigned int cnt = 3;
+	unsigned int loop = GALVUT_NCSVC_MSG_NR / cnt;
+
+	/* Open netcat service. */
+	galvut_unix_ncsvc_test_setup(SOCK_SEQPACKET, cnt);
+
+	/* Open netcat client connection. */
+	clnt = galvut_unix_ncsvc_connect_clnt(
+		galvut_unix_ncsvc_the_test.sock_type);
+	cute_check_sint(clnt, greater_equal, 0);
+
+	/* Let netcat service accept connection. */
+	ret = galvut_unix_ncsvc_test_process(&galvut_unix_ncsvc_the_test);
+	cute_check_sint(ret, equal, 0);
+	cute_check_uint(
+		galv_conn_repo_count(&galvut_unix_ncsvc_the_test.ctx.conns),
+		equal,
+		1);
+
+	/* Send a multiple messages. */
+	galvut_unix_ncsvc_send_bulk(clnt, GALVUT_NCSVC_MSG_NR);
+
+	while (loop--) {
+		/* Let netcat service receive messages. */
+		ret = galvut_unix_ncsvc_test_process(
+			&galvut_unix_ncsvc_the_test);
+		cute_check_sint(ret, equal, 0);
+		cute_check_uint(
+			galv_conn_repo_count(
+				&galvut_unix_ncsvc_the_test.ctx.conns),
+			equal,
+			1);
+	}
+
+	/* Close netcat client connection. */
+	galvut_unix_ncsvc_close_clnt(clnt);
+
+	/* Let netcat service close connection. */
+	ret = galvut_unix_ncsvc_test_process(&galvut_unix_ncsvc_the_test);
+	cute_check_sint(ret, equal, 0);
+	cute_check_uint(
+		galv_conn_repo_count(&galvut_unix_ncsvc_the_test.ctx.conns),
+		equal,
+		0);
+
+	cute_check_uint(galvut_unix_ncsvc_the_test.ctx.msg_cnt,
+	                equal,
+	                GALVUT_NCSVC_MSG_NR);
+	for (m = 0; m < galvut_unix_ncsvc_the_test.ctx.msg_cnt; m++) {
+		char         ref[] = "msgxxx";
+		const char * str = galvut_unix_ncsvc_the_test.ctx.msgs[m];
+
+STROLL_IGNORE_WARN("-Wformat-overflow")
+		sprintf(ref, "msg%03u", m);
+STROLL_RESTORE_WARN
 		cute_check_str(str, equal, ref);
 	}
 }
@@ -594,7 +653,8 @@ CUTE_GROUP(galvut_unix_ncsvc_group) = {
 	CUTE_REF(galvut_unix_ncsvc_open_send_one_close),
 	CUTE_REF(galvut_unix_ncsvc_open_send_one_shutrd),
 	CUTE_REF(galvut_unix_ncsvc_open_send_one_shutwr),
-	CUTE_REF(galvut_unix_ncsvc_open_send_bulk_close),
+	CUTE_REF(galvut_unix_ncsvc_send_bulk_full),
+	CUTE_REF(galvut_unix_ncsvc_send_bulk_partial),
 };
 
 CUTE_SUITE_STATIC(galvut_unix_ncsvc_suite,

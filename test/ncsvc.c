@@ -36,22 +36,23 @@ galvut_ncsvc_process_msg(struct galv_conn * __restrict   conn,
 	ctx = galv_acceptor_context(accept);
 	cnt = ctx->bulk_cnt;
 
-#warning FIXME! Make sure that no more than GALVUT_NCSVC_MSG_NR messages are processed
 	/* Get at most ctx->bulk_cnt messages in a row. */
-	do {
+	while (cnt--) {
+		char buff[GALVUT_NCSVC_MSG_SIZE_MAX];
+
 		ret = galv_conn_recv(conn,
-		                     ctx->msgs[ctx->msg_cnt],
-		                     sizeof(ctx->msgs[0]),
+		                     buff,
+		                     sizeof(buff),
 		                     MSG_TRUNC);
 		if (ret < 0)
 			return (int)ret;
 
-		if ((size_t)ret >= sizeof(sizeof(ctx->msgs[0])))
-			return -EMSGSIZE;
+		cute_check_uint(ctx->msg_cnt, lower, GALVUT_NCSVC_MSG_NR);
+		cute_check_uint((size_t)ret, lower, sizeof(buff));
 
-		//printf("received --%s--\n", buff);
+		memcpy(ctx->msgs[ctx->msg_cnt], buff, sizeof(buff));
 		ctx->msg_cnt++;
-	} while (--cnt);
+	}
 
 	return 0;
 }
