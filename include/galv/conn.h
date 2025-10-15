@@ -111,6 +111,18 @@ galv_conn_switch_state(struct galv_conn * __restrict conn,
 }
 
 static inline
+uint32_t
+galv_conn_watched(const struct galv_conn * __restrict conn)
+{
+	galv_conn_assert_iface_api(conn);
+	galv_assert_api(conn->fd >= 0);
+	galv_assert_api(conn->state != GALV_CONN_CLOSED_STATE);
+	galv_assert_api(conn->state != GALV_CONN_CLOSING_STATE);
+
+	return upoll_watched_events(&conn->work);
+}
+
+static inline
 void
 galv_conn_watch(struct galv_conn * __restrict conn,
                 uint32_t                      events)
@@ -180,7 +192,7 @@ galv_conn_on_send_closed(struct galv_conn * __restrict   conn,
 	galv_assert_api(conn->state != GALV_CONN_CLOSING_STATE);
 	galv_assert_api(conn->state != GALV_CONN_CLOSED_STATE);
 	galv_assert_api(!(events & ~GALV_CONN_POLL_VALID_EVENTS));
-	galv_assert_api(events & EPOLLHUP);
+	galv_assert_api(events & (EPOLLIN | EPOLLPRI | EPOLLHUP));
 	galv_assert_api(poller);
 
 	galv_conn_unwatch(conn, EPOLLOUT);

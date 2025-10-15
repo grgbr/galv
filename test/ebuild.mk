@@ -29,7 +29,7 @@ utest-ldflags := $(filter-out -DNDEBUG,$(utest-ldflags))
 endif # ($(filter y,$(CONFIG_GALV_ASSERT_API) $(CONFIG_GALV_ASSERT_INTERN)),)
 
 builtins               := builtin_utest.a
-builtin_utest.a-objs   := ncsvc.o utest.o $(config-obj)
+builtin_utest.a-objs   := echosvc.o ncsvc.o utest.o $(config-obj)
 builtin_utest.a-cflags := $(test-cflags)
 
 checkbins              := galv-utest

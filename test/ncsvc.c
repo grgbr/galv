@@ -40,10 +40,7 @@ galvut_ncsvc_process_msg(struct galv_conn * __restrict   conn,
 	while (cnt--) {
 		char buff[GALVUT_NCSVC_MSG_SIZE_MAX];
 
-		ret = galv_conn_recv(conn,
-		                     buff,
-		                     sizeof(buff),
-		                     MSG_TRUNC);
+		ret = galv_conn_recv(conn, buff, sizeof(buff), MSG_TRUNC);
 		if (ret < 0)
 			return (int)ret;
 
@@ -85,7 +82,7 @@ galvut_ncsvc_on_may_xfer(struct galv_conn * __restrict   conn,
 
 	default:
 		/* Unexpected receive failure */
-		return -EIO;
+		ret = 0;
 	}
 
 	return ret;
@@ -110,12 +107,12 @@ galvut_ncsvc_on_connecting(struct galv_conn * __restrict   conn,
 
 		galv_conn_switch_state(conn, GALV_CONN_ESTABLISHED_STATE);
 
-		galvut_debug("unix:ncsvc: connection established");
+		galvut_debug("unix:ncsvc: connection established");
 
 		return 0;
 	}
 
-	galvut_warn("unix:ncsvc: failed to enable connection polling: %s (%d)",
+	galvut_warn("unix:ncsvc: failed to enable connection polling: %s (%d)",
 	            strerror(-err),
 	            -err);
 
@@ -152,7 +149,7 @@ galvut_ncsvc_on_error(struct galv_conn * __restrict   conn __unused,
                       const struct upoll * __restrict poller __unused)
 {
 	/* Unexpected socket error. */
-	return -EIO;
+	return 0;
 }
 
 const struct galv_conn_ops galvut_ncsvc_ops = {
