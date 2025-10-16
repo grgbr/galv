@@ -77,5 +77,5 @@ config GALV_UNIX_CONN_GATE_HASH_BITS
 	depends on GALV_UNIX_CONN_GATE
 	default 8
 	help
-	  Logarithm base 2 of number of buckets of Unix socket based connection
-	  filtering hash table.
+	  Logarithm base 2 of maximum number of buckets of Unix socket based
+	  connection filtering hash table.

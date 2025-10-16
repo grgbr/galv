@@ -22,7 +22,7 @@ typedef int galv_conn_handle_fn(struct galv_conn * __restrict,
  *
  * on_error(): 
  * - called upon socket error state when returning from upoll() ;
- * - SO_ERROR socket options might be useful here (see socket(7).
+ * - SO_ERROR socket options might be useful here (see socket(7)).
  */
 struct galv_conn_ops {
 	galv_conn_handle_fn * on_may_xfer;
