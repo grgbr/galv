@@ -522,7 +522,7 @@ CUTE_TEST(galvut_unix_ncsvc_send_bulk_full)
 	                equal,
 	                1);
 
-	/* Send a multiple messages. */
+	/* Send multiple messages. */
 	galvut_unix_ncsvc_send_bulk(clnt, GALVUT_NCSVC_MSG_NR);
 
 	/* Let netcat service receive messages. */
@@ -578,7 +578,7 @@ CUTE_TEST(galvut_unix_ncsvc_send_bulk_partial)
 	                equal,
 	                1);
 
-	/* Send a multiple messages. */
+	/* Send multiple messages. */
 	galvut_unix_ncsvc_send_bulk(clnt, GALVUT_NCSVC_MSG_NR);
 
 	while (loop--) {
@@ -1105,17 +1105,17 @@ CUTE_TEST(galvut_unix_echosvc_send_bulk_full)
 	/* Let echo service accept connection. */
 	ret = galvut_unix_test_process(&galvut_unix_the_test);
 	cute_check_sint(ret, equal, 0);
-	cute_check_uint(galv_conn_repo_count(&galvut_unix_the_test.nc.conns),
+	cute_check_uint(galv_conn_repo_count(&galvut_unix_the_test.echo.conns),
 	                equal,
 	                1);
 
-	/* Send a multiple messages. */
+	/* Send multiple messages. */
 	galvut_unix_echosvc_send_bulk(clnt, 0, 16);
 
 	/* Let echo service receive messages. */
 	ret = galvut_unix_test_process(&galvut_unix_the_test);
 	cute_check_sint(ret, equal, 0);
-	cute_check_uint(galv_conn_repo_count(&galvut_unix_the_test.nc.conns),
+	cute_check_uint(galv_conn_repo_count(&galvut_unix_the_test.echo.conns),
 	                equal,
 	                1);
 
@@ -1127,7 +1127,7 @@ CUTE_TEST(galvut_unix_echosvc_send_bulk_full)
 	/* Let echo service close connection. */
 	ret = galvut_unix_test_process(&galvut_unix_the_test);
 	cute_check_sint(ret, equal, 0);
-	cute_check_uint(galv_conn_repo_count(&galvut_unix_the_test.nc.conns),
+	cute_check_uint(galv_conn_repo_count(&galvut_unix_the_test.echo.conns),
 	                equal,
 	                0);
 }
@@ -1147,11 +1147,11 @@ CUTE_TEST(galvut_unix_echosvc_send_bulk_full_shutwr)
 	/* Let echo service accept connection. */
 	ret = galvut_unix_test_process(&galvut_unix_the_test);
 	cute_check_sint(ret, equal, 0);
-	cute_check_uint(galv_conn_repo_count(&galvut_unix_the_test.nc.conns),
+	cute_check_uint(galv_conn_repo_count(&galvut_unix_the_test.echo.conns),
 	                equal,
 	                1);
 
-	/* Send a multiple messages. */
+	/* Send multiple messages. */
 	galvut_unix_echosvc_send_bulk(clnt, 0, 15);
 
 	/* Perform a local sending end closure. */
@@ -1160,7 +1160,7 @@ CUTE_TEST(galvut_unix_echosvc_send_bulk_full_shutwr)
 	/* Let echo service receive messages and close connection. */
 	ret = galvut_unix_test_process(&galvut_unix_the_test);
 	cute_check_sint(ret, equal, 0);
-	cute_check_uint(galv_conn_repo_count(&galvut_unix_the_test.nc.conns),
+	cute_check_uint(galv_conn_repo_count(&galvut_unix_the_test.echo.conns),
 	                equal,
 	                0);
 
@@ -1172,7 +1172,108 @@ CUTE_TEST(galvut_unix_echosvc_send_bulk_full_shutwr)
 	/* Let echo service close connection. */
 	ret = galvut_unix_test_process(&galvut_unix_the_test);
 	cute_check_sint(ret, equal, 0);
-	cute_check_uint(galv_conn_repo_count(&galvut_unix_the_test.nc.conns),
+	cute_check_uint(galv_conn_repo_count(&galvut_unix_the_test.echo.conns),
+	                equal,
+	                0);
+}
+
+CUTE_TEST(galvut_unix_echosvc_send_bulk_partial)
+{
+	int          ret;
+	int          clnt;
+	unsigned int cnt = 3;
+	unsigned int nr = 16;
+	unsigned int loop = (nr + cnt - 1) / cnt;
+
+	/* Open echo service. */
+	galvut_unix_echosvc_test_setup(SOCK_SEQPACKET, cnt);
+
+	/* Open echo client connection. */
+	clnt = galvut_unix_connect_clnt(galvut_unix_the_test.sock_type);
+	cute_check_sint(clnt, greater_equal, 0);
+
+	/* Let echo service accept connection. */
+	ret = galvut_unix_test_process(&galvut_unix_the_test);
+	cute_check_sint(ret, equal, 0);
+	cute_check_uint(galv_conn_repo_count(&galvut_unix_the_test.echo.conns),
+	                equal,
+	                1);
+
+	/* Send multiple messages. */
+	galvut_unix_echosvc_send_bulk(clnt, 0, nr);
+
+	/* Let echo service receive messages. */
+	while (loop--) {
+		/* Let netcat service receive messages. */
+		ret = galvut_unix_test_process(&galvut_unix_the_test);
+		cute_check_sint(ret, equal, 0);
+		cute_check_uint(
+			galv_conn_repo_count(&galvut_unix_the_test.echo.conns),
+			equal,
+			1);
+	}
+
+	galvut_unix_echosvc_recv_bulk(clnt, 0, nr);
+
+	/* Close echo client connection. */
+	galvut_unix_close_clnt(clnt);
+
+	/* Let echo service close connection. */
+	ret = galvut_unix_test_process(&galvut_unix_the_test);
+	cute_check_sint(ret, equal, 0);
+	cute_check_uint(galv_conn_repo_count(&galvut_unix_the_test.echo.conns),
+	                equal,
+	                0);
+}
+
+CUTE_TEST(galvut_unix_echosvc_send_bulk_partial_shutwr)
+{
+	int          ret;
+	int          clnt;
+	unsigned int cnt = 3;
+	unsigned int nr = 16;
+	unsigned int loop = (nr + cnt - 1) / cnt;
+
+	/* Open echo service. */
+	galvut_unix_echosvc_test_setup(SOCK_SEQPACKET, cnt);
+
+	/* Open echo client connection. */
+	clnt = galvut_unix_connect_clnt(galvut_unix_the_test.sock_type);
+	cute_check_sint(clnt, greater_equal, 0);
+
+	/* Let echo service accept connection. */
+	ret = galvut_unix_test_process(&galvut_unix_the_test);
+	cute_check_sint(ret, equal, 0);
+	cute_check_uint(galv_conn_repo_count(&galvut_unix_the_test.echo.conns),
+	                equal,
+	                1);
+
+	/* Send multiple messages. */
+	galvut_unix_echosvc_send_bulk(clnt, 0, nr);
+
+	/* Perform a local sending end closure. */
+	unsk_shutdown(clnt, SHUT_WR);
+
+	/* Let echo service receive messages. */
+	while (loop--) {
+		/* Let netcat service receive messages. */
+		ret = galvut_unix_test_process(&galvut_unix_the_test);
+		cute_check_sint(ret, equal, 0);
+	}
+
+	cute_check_uint(galv_conn_repo_count(&galvut_unix_the_test.echo.conns),
+	                equal,
+	                0);
+
+	galvut_unix_echosvc_recv_bulk(clnt, 0, nr);
+
+	/* Close echo client connection. */
+	galvut_unix_close_clnt(clnt);
+
+	/* Let echo service close connection. */
+	ret = galvut_unix_test_process(&galvut_unix_the_test);
+	cute_check_sint(ret, equal, 0);
+	cute_check_uint(galv_conn_repo_count(&galvut_unix_the_test.echo.conns),
 	                equal,
 	                0);
 }
@@ -1186,6 +1287,8 @@ CUTE_GROUP(galvut_unix_echosvc_group) = {
 	CUTE_REF(galvut_unix_echosvc_open_send_one_shutwr),
 	CUTE_REF(galvut_unix_echosvc_send_bulk_full),
 	CUTE_REF(galvut_unix_echosvc_send_bulk_full_shutwr),
+	CUTE_REF(galvut_unix_echosvc_send_bulk_partial),
+	CUTE_REF(galvut_unix_echosvc_send_bulk_partial_shutwr),
 };
 
 CUTE_SUITE_STATIC(galvut_unix_echosvc_suite,

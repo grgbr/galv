@@ -61,7 +61,7 @@ galv_unix_acceptor_grab(const struct galv_unix_acceptor * __restrict acceptor,
 	fd = unsk_accept(acceptor->base.fd,
 	                 &attrs->peer_addr,
 	                 &attrs->peer_size,
-	                 flags);
+	                 O_NONBLOCK | flags);
 	if (fd < 0)
 		return fd;
 
