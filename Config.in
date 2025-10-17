@@ -51,30 +51,28 @@ config GALV_REPO
 	help
 	  Build Galv library with support for connection repository.
 
+config GALV_GATE
+	bool "Connection gate"
+	default n
+	help
+	  Build Galv library with socket connection filtering support.
+
 config GALV_UNIX_CONN
 	bool "Unix socket connection"
 	default y
 	help
 	  Build Galv library with Unix socket based connection support.
 
-config GALV_UNIX_CONN_GATE
-	bool "Unix socket gate"
-	depends on GALV_UNIX_CONN
-	default n
-	help
-	  Build Galv library with Unix socket based connection filtering
-          support.
-
 config GALV_UNIX_CONN_GATE_HASH_RATIO
 	int "Unix socket gate hash fill ratio"
-	depends on GALV_UNIX_CONN_GATE
+	depends on GALV_UNIX_CONN
 	default 70
 	help
 	  Unix socket based connection filtering hash table targeted fill ratio.
 
 config GALV_UNIX_CONN_GATE_HASH_BITS
 	int "Unix socket gate hash log size"
-	depends on GALV_UNIX_CONN_GATE
+	depends on GALV_UNIX_CONN
 	default 8
 	help
 	  Logarithm base 2 of maximum number of buckets of Unix socket based

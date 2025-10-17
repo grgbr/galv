@@ -11,21 +11,6 @@
 #include <utils/unsk.h>
 
 /******************************************************************************
- * Asynchronous unix connection handling
- ******************************************************************************/
-
-void
-galv_unix_conn_setup(struct galv_unix_conn * __restrict        conn,
-                     int                                       fd,
-                     struct galv_unix_acceptor * __restrict    acceptor,
-                     const struct galv_conn_ops * __restrict   ops,
-                     const struct galv_unix_attrs * __restrict attrs)
-{
-	galv_conn_setup(&conn->base, fd, &acceptor->base, ops);
-	conn->attrs = *attrs;
-}
-
-/******************************************************************************
  * Asynchronous unix connection acceptor handling
  ******************************************************************************/
 
@@ -48,8 +33,8 @@ galv_unix_acceptor_grab(const struct galv_unix_acceptor * __restrict acceptor,
                         int                                          flags)
 {
 	galv_unix_assert_acceptor_api(acceptor);
-	galv_assert_intern(attrs);
-	galv_assert_intern(!(flags & ~(SOCK_NONBLOCK | SOCK_CLOEXEC)));
+	galv_assert_api(attrs);
+	galv_assert_api(!(flags & ~(SOCK_NONBLOCK | SOCK_CLOEXEC)));
 
 	int       fd;
 	socklen_t sz = sizeof(attrs->peer_cred);
@@ -240,10 +225,40 @@ galv_unix_acceptor_close(const struct galv_unix_acceptor * __restrict acceptor,
 }
 
 /******************************************************************************
+ * Asynchronous unix connection handling
+ ******************************************************************************/
+
+#define galv_unix_assert_attrs_api(_attrs) \
+	galv_assert_api(_attrs); \
+	galv_assert_api((_attrs)->peer_size >= sizeof(sa_family_t)); \
+	galv_assert_api((_attrs)->peer_addr.sun_family == AF_UNIX); \
+	galv_assert_api((_attrs)->peer_cred.pid > 0)
+
+#define galv_unix_conn_assert_api(_conn) \
+	galv_conn_assert_iface_api(&(_conn)->base); \
+	galv_unix_assert_attrs_api(&(_conn)->attrs)
+
+void
+galv_unix_conn_setup(struct galv_unix_conn * __restrict        conn,
+                     int                                       fd,
+                     struct galv_unix_acceptor * __restrict    acceptor,
+                     const struct galv_conn_ops * __restrict   ops,
+                     const struct galv_unix_attrs * __restrict attrs)
+{
+	galv_assert_api(conn);
+	galv_unix_assert_acceptor_api(acceptor);
+	galv_conn_assert_ops_api(ops);
+	galv_unix_assert_attrs_api(attrs);
+
+	galv_conn_setup(&conn->base, fd, &acceptor->base, ops);
+	conn->attrs = *attrs;
+}
+
+/******************************************************************************
  * Unix connection gate handling
  ******************************************************************************/
 
-#if defined(CONFIG_GALV_UNIX_CONN_GATE)
+#if defined(CONFIG_GALV_GATE)
 
 #include <stroll/hash.h>
 #include <stroll/pow2.h>
@@ -255,7 +270,7 @@ galv_unix_acceptor_close(const struct galv_unix_acceptor * __restrict acceptor,
 	STROLL_CONCAT(CONFIG_GALV_UNIX_CONN_GATE_HASH_BITS, U)
 
 #define galv_unix_gate_assert_ucred_api(_gate) \
-	galv_unix_gate_assert_iface_api(&(_gate)->base); \
+	galv_gate_assert_iface_api(&(_gate)->base); \
 	galv_assert_api((_gate)->nr); \
 	galv_assert_api((_gate)->cnt <= (_gate)->nr); \
 	galv_assert_api((_gate)->nr <= (1U << (_gate)->bits)); \
@@ -451,22 +466,24 @@ galv_unix_gate_ucred_untrack_uid(struct galv_unix_gate_ucred * __restrict gate,
 
 static
 int
-galv_unix_gate_ucred_track(struct galv_unix_gate * __restrict        gate,
-                           const struct galv_unix_attrs * __restrict attrs)
+galv_unix_gate_ucred_track(struct galv_gate * __restrict       gate,
+                           const struct galv_conn * __restrict conn)
 {
+	galv_unix_gate_assert_ucred_api((struct galv_unix_gate_ucred *)gate);
+	galv_unix_conn_assert_api((const struct galv_unix_conn *)conn);
+
 	struct galv_unix_gate_ucred *       ucgt =
 		(struct galv_unix_gate_ucred *)gate;
 	unsigned int                        pid_hash;
 	struct galv_unix_gate_ucred_count * pid_cnt;
 	unsigned int                        uid_hash;
 	struct galv_unix_gate_ucred_count * uid_cnt;
-	const struct ucred *                cred = &attrs->peer_cred;
-
-	galv_unix_gate_assert_ucred_api(ucgt);
-	galv_assert_intern(attrs);
+	const struct ucred *                cred;
 
 	if (ucgt->cnt == ucgt->nr)
 		return -EPERM;
+
+	cred = &((const struct galv_unix_conn *)conn)->attrs.peer_cred;
 
 	pid_hash = galv_unix_gate_ucred_hash_pid(ucgt, cred);
 	pid_cnt = galv_unix_gate_ucred_find_bypid(ucgt, cred, pid_hash);
@@ -493,22 +510,23 @@ galv_unix_gate_ucred_track(struct galv_unix_gate * __restrict        gate,
 
 static
 void
-galv_unix_gate_ucred_untrack(struct galv_unix_gate * __restrict        gate,
-                             const struct galv_unix_attrs * __restrict attrs)
+galv_unix_gate_ucred_untrack(struct galv_gate * __restrict       gate,
+                             const struct galv_conn * __restrict conn)
 {
+	galv_unix_gate_assert_ucred_api((struct galv_unix_gate_ucred *)gate);
+	galv_unix_conn_assert_api((const struct galv_unix_conn *)conn);
+
 	struct galv_unix_gate_ucred * ucgt = (struct galv_unix_gate_ucred *)
 	                                     gate;
-	const struct ucred *          cred = &attrs->peer_cred;
-
-	galv_unix_gate_assert_ucred_api(ucgt);
-	galv_assert_intern(attrs);
+	const struct ucred *          cred = &((const struct galv_unix_conn *)
+	                                       conn)->attrs.peer_cred;
 
 	galv_unix_gate_ucred_untrack_pid(ucgt, cred);
 	galv_unix_gate_ucred_untrack_uid(ucgt, cred);
 	ucgt->cnt--;
 }
 
-static const struct galv_unix_gate_ops galv_unix_gate_ucred_ops = {
+static const struct galv_gate_ops galv_unix_gate_ucred_ops = {
 	.track   = galv_unix_gate_ucred_track,
 	.untrack = galv_unix_gate_ucred_untrack
 };
@@ -544,7 +562,7 @@ galv_unix_gate_ucred_init(struct galv_unix_gate_ucred * __restrict gate,
 	                       sizeof(struct galv_unix_gate_ucred_count)))
 		goto free_uids;
 
-	gate->base.ops = &galv_unix_gate_ucred_ops;
+	galv_gate_init(&gate->base, &galv_unix_gate_ucred_ops);
 	gate->nr = max_conn;
 	gate->bits = bits;
 	gate->per_pid = max_per_pid;
@@ -572,4 +590,4 @@ galv_unix_gate_ucred_fini(struct galv_unix_gate_ucred * __restrict gate)
 	stroll_palloc_fini(&gate->alloc);
 }
 
-#endif /* defined(CONFIG_GALV_UNIX_CONN_GATE) */
+#endif /* defined(CONFIG_GALV_GATE) */

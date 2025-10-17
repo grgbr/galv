@@ -13,6 +13,7 @@ HEADERDIR       := $(CURDIR)/include
 headers          = galv/cdefs.h
 headers         += galv/acceptor.h
 headers         += galv/conn.h
+headers         += $(call kconf_enabled,GALV_GATE,galv/gate.h)
 headers         += $(call kconf_enabled,GALV_FABRIC,galv/fabric.h)
 headers         += $(call kconf_enabled,GALV_REPO,galv/repo.h)
 headers         += $(call kconf_enabled,GALV_UNIX,galv/unix.h)

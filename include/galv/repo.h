@@ -1,22 +1,36 @@
-/******************************************************************************
- * Asynchronous connection repository handling
- ******************************************************************************/
+/****************************************************************************** 
+* SPDX-License-Identifier: LGPL-3.0-only
+*
+* This file is part of Galv.
+* Copyright (C) 2017-2025 Grégor Boirie <gregor.boirie@free.fr>
+*******************************************************************************/
+
+/**
+ * @file
+ * Connection repository
+ *
+ * @author    Grégor Boirie <gregor.boirie@free.fr>
+ * @date      13 Oct 2025
+ * @copyright Copyright (C) 2024 Grégor Boirie.
+ * @license   [GNU Lesser General Public License (LGPL) v3]
+ *            (https://www.gnu.org/licenses/lgpl+gpl-3.0.txt)
+ */
 
 #ifndef _GALV_REPO_H
 #define _GALV_REPO_H
 
 #include <galv/conn.h>
 
-#define galv_repo_assert_iface_api(_repo) \
-	galv_assert_api(_repo); \
-	galv_assert_api((_repo)->nr); \
-	galv_assert_api((_repo)->cnt <= (_repo)->nr)
-
 struct galv_conn_repo {
 	unsigned int             cnt;
 	unsigned int             nr;
 	struct stroll_dlist_node conns;
 };
+
+#define galv_repo_assert_iface_api(_repo) \
+	galv_assert_api(_repo); \
+	galv_assert_api((_repo)->nr); \
+	galv_assert_api((_repo)->cnt <= (_repo)->nr)
 
 #define GALV_CONN_REPO_INIT(_repo, _nr) \
 	{ \
