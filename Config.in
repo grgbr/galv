@@ -77,3 +77,9 @@ config GALV_UNIX_CONN_GATE_HASH_BITS
 	help
 	  Logarithm base 2 of maximum number of buckets of Unix socket based
 	  connection filtering hash table.
+
+config GALV_SESS
+	bool "Session protocol"
+	default n
+	help
+	  Build Galv library with session protocol support.
