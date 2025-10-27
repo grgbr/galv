@@ -78,6 +78,12 @@ config GALV_UNIX_CONN_GATE_HASH_BITS
 	  Logarithm base 2 of maximum number of buckets of Unix socket based
 	  connection filtering hash table.
 
+config GALV_BUFF
+	bool "Core network buffer"
+	default n
+	help
+	  Build Galv library with network buffer support.
+
 config GALV_SESS
 	bool "Session protocol"
 	default n

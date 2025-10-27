@@ -13,6 +13,7 @@ libgalv-objects    := common.o \
                       $(call kconf_enabled,GALV_FABRIC,fabric.o) \
                       $(call kconf_enabled,GALV_REPO,repo.o) \
                       $(call kconf_enabled,GALV_UNIX_CONN,unix.o) \
+                      $(call kconf_enabled,GALV_BUFF,buffer.o) \
                       $(call kconf_enabled,GALV_SESS,session.o)
 
 solibs             := libgalv.so
