@@ -262,6 +262,8 @@ galv_conn_send(struct galv_conn * __restrict conn,
                size_t                        size,
                int                           flags)
 {
+#define GALV_CONN_SEND_FLAGS \
+	(MSG_DONTWAIT | MSG_EOR |MSG_MORE | MSG_NOSIGNAL | MSG_OOB)
 	galv_conn_assert_iface_api(conn);
 	galv_assert_api(conn->fd >= 0);
 	galv_assert_api(conn->state != GALV_CONN_CLOSED_STATE);
@@ -270,7 +272,7 @@ galv_conn_send(struct galv_conn * __restrict conn,
 	galv_assert_api(buff); /* prohibit empty packets ! */
 	galv_assert_api(size); /* prohibit empty packets ! */
 	galv_assert_api(size <= SSIZE_MAX);
-	galv_assert_api(!(flags & ~(MSG_MORE | MSG_NOSIGNAL | MSG_OOB)));
+	galv_assert_api(!(flags & ~GALV_CONN_SEND_FLAGS));
 
 	ssize_t ret;
 
@@ -303,6 +305,8 @@ galv_conn_recv(struct galv_conn * __restrict conn,
                size_t                        size,
                int                           flags)
 {
+#define GALV_CONN_RECV_VALID_FLAGS \
+	(MSG_DONTWAIT | MSG_ERRQUEUE | MSG_OOB | MSG_PEEK | MSG_TRUNC)
 	galv_conn_assert_iface_api(conn);
 	galv_assert_api(conn->fd >= 0);
 	galv_assert_api(conn->state != GALV_CONN_CLOSED_STATE);
@@ -311,6 +315,7 @@ galv_conn_recv(struct galv_conn * __restrict conn,
 	galv_assert_api(buff);
 	galv_assert_api(size);
 	galv_assert_api(size <= SSIZE_MAX);
+	galv_assert_api(!(flags & ~GALV_CONN_RECV_VALID_FLAGS));
 
 	ssize_t ret;
 
@@ -327,6 +332,44 @@ galv_conn_recv(struct galv_conn * __restrict conn,
 	 * probihit empty payloads and always consider this situation as
 	 * a remote peer socket closure.
 	 */
+	return -ECONNREFUSED;
+}
+
+/**
+ * @return A non zero number of bytes received upon success, a negative `errno`
+ *         like code otherwise.
+ * @retval -EAGAIN       Underlying socket incoming buffer empty, try again
+ *                       later
+ * @retval -ECONNREFUSED Remote peer closed its connection
+ * @retval -EINTR        Interrupted by a signal before any data was received
+ * @retval -ENOMEM       No more memory available
+ */
+static inline
+ssize_t
+galv_conn_recvmsg(struct galv_conn * __restrict conn,
+                  struct msghdr * __restrict    msg,
+                  int                           flags)
+{
+#define GALV_CONN_RECVMSG_VALID_FLAGS \
+	(MSG_CMSG_CLOEXEC | GALV_CONN_RECV_VALID_FLAGS)
+	galv_conn_assert_iface_api(conn);
+	galv_assert_api(conn->fd >= 0);
+	galv_assert_api(conn->state != GALV_CONN_CLOSED_STATE);
+	galv_assert_api(conn->state != GALV_CONN_CONNECTING_STATE);
+	galv_assert_api(conn->state != GALV_CONN_CLOSING_STATE);
+	galv_assert_api(msg);
+	galv_assert_api(!msg->msg_name);
+	galv_assert_api(msg->msg_iov || msg->msg_control);
+	galv_assert_api(!msg->msg_iov || msg->msg_iovlen);
+	galv_assert_api(!msg->msg_control || msg->msg_controllen);
+	galv_assert_api(!(flags & ~ETUX_SOCK_RECVMSG_VALID_FLAGS));
+
+	ssize_t ret;
+
+	ret = etux_sock_recvmsg(conn->fd, msg, flags);
+	if (ret)
+		return ret;
+
 	return -ECONNREFUSED;
 }
 
