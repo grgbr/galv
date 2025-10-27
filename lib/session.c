@@ -6,19 +6,69 @@
  ******************************************************************************/
 
 #include "common.h"
+#include "galv/session.h"
 #include "galv/conn.h"
-#include "galv/buffer.h"
 #include <string.h>
+
+#define galv_sess_assert_intern(_sess) \
+	galv_assert_intern(_sess); \
+	galv_assert_intern((_sess)->conn)
+
+/******************************************************************************
+ * Session protocol message and header
+ ******************************************************************************/
+
+enum galv_sess_msg_type {
+	GALV_SESS_MSG_REQUEST_TYPE = 0,
+	GALV_SESS_MSG_REPLY_TYPE   = 1,
+	GALV_SESS_MSG_NOTIF_TYPE   = 2,
+	GALV_SESS_MSG_TYPE_NR
+};
+
+struct galv_sess_msg_head {
+	uint8_t  resv; /* Reserved for future use. */
+	uint8_t  type; /* Type of exchange */
+	uint16_t xchg; /* eXCHGange identification number */
+	uint32_t size; /* Message size including this header */
+	char     data[0];
+} __packed;
+
+static
+enum galv_sess_msg_type
+galv_sess_msg_head_type(const struct galv_sess_msg_head * __restrict head)
+{
+	galv_assert_intern(head);
+
+	return (enum galv_sess_msg_type)head->type;
+}
+
+static
+uint16_t
+galv_sess_msg_head_xchg(const struct galv_sess_msg_head * __restrict head)
+{
+	galv_assert_intern(head);
+	galv_assert_intern(stroll_aligned((size_t)&head->xchg,
+	                                  sizeof(head->xchg)));
+
+#warning FIXME: do not convert from network byte order if unix socket !
+	return be16toh(head->xchg);
+}
+
+static
+uint32_t
+galv_sess_msg_head_size(const struct galv_sess_msg_head * __restrict head)
+{
+	galv_assert_intern(head);
+	galv_assert_intern(stroll_aligned((size_t)&head->size,
+	                                  sizeof(head->size)));
+
+#warning FIXME: do not convert from network byte order if unix socket !
+	return be32toh(head->size);
+}
 
 /******************************************************************************
  * Session connection
  ******************************************************************************/
-
-struct galv_sess {
-	struct galv_conn        base;
-	struct galv_buff_queue  recv_buffq;
-	struct galv_buff_fabric buff_fab;
-};
 
 static
 int
@@ -26,7 +76,7 @@ galv_sess_recv_tail_buff(struct galv_sess * __restrict session,
                          struct galv_buff * __restrict tail_buff,
                          size_t                        tail_size)
 {
-	galv_assert_intern(session);
+	galv_sess_assert_intern(session);
 	galv_assert_intern(tail_buff);
 	galv_assert_intern(tail_buff->fabric == &session->buff_fab);
 	galv_assert_intern(tail_size);
@@ -54,7 +104,7 @@ galv_sess_recv_tail_buff(struct galv_sess * __restrict session,
 	vecs[1].iov_base = galv_buff_data(nevv);
 	vecs[1].iov_len = galv_buff_capacity(nevv);
 
-	ret = galv_conn_recvmsg(&session->base, &mhdr, 0);
+	ret = galv_conn_recvmsg(session->conn, &mhdr, 0);
 	galv_assert_intern(ret);
 	if (ret > (ssize_t)tail_size) {
 		size_t size = tail_size + galv_buff_capacity(nevv);
@@ -79,7 +129,7 @@ static
 int
 galv_sess_recv_new_buff(struct galv_sess * __restrict session)
 {
-	galv_assert_intern(session);
+	galv_sess_assert_intern(session);
 
 	struct galv_buff * buff;
 	size_t             size;
@@ -90,7 +140,7 @@ galv_sess_recv_new_buff(struct galv_sess * __restrict session)
 		return -errno;
 
 	size = galv_buff_capacity(buff);
-	ret = galv_conn_recv(&session->base, galv_buff_data(buff), size, 0);
+	ret = galv_conn_recv(session->conn, galv_buff_data(buff), size, 0);
 	galv_assert_intern(ret);
 	if (ret > 0) {
 		galv_buff_grow_tail(buff, (size_t)ret);
@@ -108,7 +158,7 @@ static
 int
 galv_sess_recv_buff(struct galv_sess * __restrict session)
 {
-	galv_assert_intern(session);
+	galv_sess_assert_intern(session);
 
 	if (!galv_buff_queue_empty(&session->recv_buffq)) {
 		struct galv_buff * buff;
@@ -121,6 +171,43 @@ galv_sess_recv_buff(struct galv_sess * __restrict session)
 	}
 
 	return galv_sess_recv_new_buff(session);
+}
+
+int
+galv_sess_init(struct galv_sess * __restrict session,
+               struct galv_conn * __restrict conn,
+               unsigned int                  buff_nr,
+               size_t                        buff_capa)
+{
+#define GALV_SESS_BUFF_NR_MIN (2U)
+#define GALV_SESS_BUFF_NR_MAX (1024U)
+	galv_assert_api(session);
+	galv_assert_api(conn);
+	galv_assert_api(buff_nr >= GALV_SESS_BUFF_NR_MIN);
+	galv_assert_api(buff_nr <= GALV_SESS_BUFF_NR_MAX);
+
+	int err;
+
+	err = galv_buff_init_fabric(&session->buff_fab, buff_nr, buff_capa);
+	if (err)
+		return err;
+
+	session->conn = conn;
+	galv_buff_init_queue(&session->recv_buffq);
+
+	return 0;
+}
+
+void
+galv_sess_fini(struct galv_sess * __restrict session)
+{
+	galv_sess_assert_api(session);
+
+	while (!galv_buff_queue_empty(&session->recv_buffq))
+		galv_buff_release(galv_buff_dqueue(&session->recv_buffq));
+	galv_buff_fini_queue(&session->recv_buffq);
+
+	galv_buff_fini_fabric(&session->buff_fab);
 }
 
 #if 0

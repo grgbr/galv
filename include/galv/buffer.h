@@ -49,10 +49,12 @@ galv_buff_fabric_capacity(const struct galv_buff_fabric * __restrict fabric)
 extern int
 galv_buff_init_fabric(struct galv_buff_fabric * __restrict fabric,
                       unsigned int                         nr,
-                      size_t                               capacity);
+                      size_t                               capacity)
+	__export_public;
 
 extern void
-galv_buff_fini_fabric(struct galv_buff_fabric * __restrict fabric);
+galv_buff_fini_fabric(struct galv_buff_fabric * __restrict fabric)
+	__export_public;
 
 /**
  * Core network buffer.
@@ -113,11 +115,13 @@ galv_buff_capacity(const struct galv_buff * __restrict buffer)
 
 static inline
 uint8_t *
-galv_buff_data(struct galv_buff * __restrict buffer)
+galv_buff_data(const struct galv_buff * __restrict buffer)
 {
 	galv_buff_assert_api(buffer);
 
-	return buffer->data;
+STROLL_IGNORE_WARN("-Wcast-qual")
+	return (uint8_t *)buffer->data;
+STROLL_RESTORE_WARN
 }
 
 static inline
@@ -132,10 +136,12 @@ galv_buff_acquire(struct galv_buff * __restrict buffer)
 }
 
 extern void
-galv_buff_release(struct galv_buff * __restrict buffer);
+galv_buff_release(struct galv_buff * __restrict buffer)
+	__export_public;
 
 extern struct galv_buff *
-galv_buff_summon(struct galv_buff_fabric * __restrict fabric);
+galv_buff_summon(struct galv_buff_fabric * __restrict fabric)
+	__export_public;
 
 /**
  * Core network buffer queue
@@ -155,7 +161,8 @@ galv_buff_queue_empty(const struct galv_buff_queue * __restrict queue)
 
 extern void
 galv_buff_nqueue(struct galv_buff_queue * __restrict queue,
-                 struct galv_buff * __restrict       buffer);
+                 struct galv_buff * __restrict       buffer)
+	__export_public;
 
 static inline
 struct galv_buff *
@@ -167,10 +174,11 @@ galv_buff_peek_queue_tail(const struct galv_buff_queue * __restrict queue)
 }
 
 extern struct galv_buff *
-galv_buff_dqueue(struct galv_buff_queue * __restrict queue);
+galv_buff_dqueue(struct galv_buff_queue * __restrict queue)
+	__export_public;
 
 static inline
-struct galv_buff *
+void
 galv_buff_init_queue(struct galv_buff_queue * __restrict queue)
 {
 	galv_assert_api(queue);

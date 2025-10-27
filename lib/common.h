@@ -1,7 +1,14 @@
+/******************************************************************************
+ * SPDX-License-Identifier: LGPL-3.0-only
+ *
+ * This file is part of Galv.
+ * Copyright (C) 2017-2025 Grégor Boirie <gregor.boirie@free.fr>
+ ******************************************************************************/
+
 #ifndef _GALV_COMMON_H
 #define _GALV_COMMON_H
 
-#include <galv/cdefs.h>
+#include "galv/cdefs.h"
 #include <elog/elog.h>
 
 #if defined(CONFIG_GALV_ASSERT_INTERN)
