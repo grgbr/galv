@@ -6,114 +6,184 @@
  ******************************************************************************/
 
 #include "common.h"
-#include <stroll/lalloc.h>
-#include <stroll/palloc.h>
-#include <stroll/buffer.h>
+#include "galv/conn.h"
+#include "galv/buffer.h"
 #include <string.h>
 
 /******************************************************************************
- * Reference counted contiguous memory area
+ * Session connection
  ******************************************************************************/
 
-struct galv_mem {
-	unsigned long ref;
-	uint8_t       data[0];
+struct galv_sess {
+	struct galv_conn        base;
+	struct galv_buff_queue  recv_buffq;
+	struct galv_buff_fabric buff_fab;
 };
 
 static
-uint8_t *
-galv_mem_data(struct galv_mem * __restrict mem)
+int
+galv_sess_recv_tail_buff(struct galv_sess * __restrict session,
+                         struct galv_buff * __restrict tail_buff,
+                         size_t                        tail_size)
 {
-	galv_assert_intern(mem);
+	galv_assert_intern(session);
+	galv_assert_intern(tail_buff);
+	galv_assert_intern(tail_buff->fabric == &session->buff_fab);
+	galv_assert_intern(tail_size);
+	galv_assert_intern(tail_size == galv_buff_avail_tail(tail_buff));
 
-	return mem->data;
+	struct galv_buff * nevv;
+	struct iovec       vecs[2];
+	struct msghdr      mhdr = {
+		.msg_name    = NULL,
+		.msg_iov     = vecs,
+		.msg_iovlen  = stroll_array_nr(vecs),
+		.msg_control = NULL,
+		.msg_flags   = 0
+	};
+	ssize_t            ret;
+
+	nevv = galv_buff_summon(&session->buff_fab);
+	if (!nevv)
+		return -errno;
+
+	galv_assert_intern((tail_size + galv_buff_capacity(nevv)) <=
+	                   (size_t)SSIZE_MAX);
+	vecs[0].iov_base = galv_buff_tail(tail_buff);
+	vecs[0].iov_len = tail_size;
+	vecs[1].iov_base = galv_buff_data(nevv);
+	vecs[1].iov_len = galv_buff_capacity(nevv);
+
+	ret = galv_conn_recvmsg(&session->base, &mhdr, 0);
+	galv_assert_intern(ret);
+	if (ret > (ssize_t)tail_size) {
+		size_t size = tail_size + galv_buff_capacity(nevv);
+
+		galv_buff_grow_tail(tail_buff, tail_size);
+		galv_buff_grow_tail(nevv, (size_t)ret - tail_size);
+		galv_buff_nqueue(&session->recv_buffq, nevv);
+
+		ret = ((size_t)ret != size) ? -EAGAIN : 0;
+	}
+	else if (ret > 0) {
+		galv_buff_grow_tail(tail_buff, (size_t)ret);
+		ret = -EAGAIN;
+	}
+
+	galv_buff_release(nevv);
+
+	return (int)ret;
 }
 
 static
-struct galv_mem *
-galv_mem_acquire(struct galv_mem * __restrict mem)
+int
+galv_sess_recv_new_buff(struct galv_sess * __restrict session)
 {
-	galv_assert_intern(mem);
+	galv_assert_intern(session);
 
-	mem->ref++;
+	struct galv_buff * buff;
+	size_t             size;
+	ssize_t            ret;
 
-	return mem;
+	buff = galv_buff_summon(&session->buff_fab);
+	if (!buff)
+		return -errno;
+
+	size = galv_buff_capacity(buff);
+	ret = galv_conn_recv(&session->base, galv_buff_data(buff), size, 0);
+	galv_assert_intern(ret);
+	if (ret > 0) {
+		galv_buff_grow_tail(buff, (size_t)ret);
+		galv_buff_nqueue(&session->recv_buffq, buff);
+
+		ret = ((size_t)ret != size) ? -EAGAIN : 0;
+	}
+
+	galv_buff_release(buff);
+
+	return (int)ret;
+}
+
+static
+int
+galv_sess_recv_buff(struct galv_sess * __restrict session)
+{
+	galv_assert_intern(session);
+
+	if (!galv_buff_queue_empty(&session->recv_buffq)) {
+		struct galv_buff * buff;
+		size_t             size;
+
+		buff = galv_buff_peek_queue_tail(&session->recv_buffq);
+		size = galv_buff_avail_tail(buff);
+		if (size)
+			return galv_sess_recv_tail_buff(session, buff, size);
+	}
+
+	return galv_sess_recv_new_buff(session);
+}
+
+#if 0
+static
+struct galv_buff *
+galv_sess_create_buff(struct galv_sess * __restrict sess)
+{
+	return galv_buff_create(&sess->buff_fab);
+}
+
+static
+struct galv_buff *
+galv_sess_release_buff(struct galv_sess * __restrict sess)
+{
+
+}
+
+static
+struct galv_sess_msg *
+galv_sess_create_msg(struct galv_sess * __restrict sess)
+{
+
+}
+
+static
+struct galv_sess_msg *
+galv_sess_destroy_msg(struct galv_sess * __restrict sess)
+{
+
 }
 
 static
 void
-galv_mem_release(struct galv_mem * __restrict      mem,
-                 struct stroll_lalloc * __restrict alloc)
+galv_sess_init(struct galv_sess * __restrict sess)
 {
-	galv_assert_intern(mem);
-	galv_assert_intern(alloc);
 
-	if (!(--mem->ref))
-		stroll_lalloc_free(alloc, mem);
 }
 
 static
-struct galv_mem *
-galv_mem_create(struct stroll_lalloc * __restrict alloc)
+void
+galv_sess_fini(struct galv_sess * __restrict sess)
 {
-	galv_assert_intern(alloc);
 
-	struct galv_mem * mem;
-
-	mem = stroll_lalloc_alloc(alloc);
-	if (!mem)
-		return NULL;
-
-	mem->ref = 1;
-
-	return mem;
 }
 
 /******************************************************************************
- * Session protocol header
+ * Session protocol message and header
  ******************************************************************************/
 
-enum galv_sess_msg_multi {
-	/* "Parcel of a multipart message. */
-	GALV_SESS_MSG_PRCL_MULTI  = 0,
-	/* Last parcel of a simple or multipart message. */
-	GALV_SESS_MSG_LAST_MULTI  = 1,
-	GALV_SESS_MSG_MULTI_NR
-};
-
-enum galv_sess_msg_type {
+enum galv_sess_sgmt_type {
 	GALV_SESS_MSG_REQUEST_TYPE = 0,
 	GALV_SESS_MSG_REPLY_TYPE   = 1,
 	GALV_SESS_MSG_NOTIF_TYPE   = 2,
 	GALV_SESS_MSG_TYPE_NR
 };
 
-#define GALV_SESS_MSG_MULTI_FLAG_BIT  (5U)
-#define GALV_SESS_MSG_MULTI_FLAG_MASK (0x1U)
-#define GALV_SESS_MSG_TYPE_FLAG_BIT   (6U)
-#define GALV_SESS_MSG_TYPE_FLAG_MASK  (0x3U)
-#define GALV_SESS_MSG_VALID_FLAG_MASK \
-	((uint8_t)((GALV_SESS_MSG_MULTI_FLAG_MASK << \
-	            GALV_SESS_MSG_MULTI_FLAG_BIT) | \
-	           (GALV_SESS_MSG_TYPE_FLAG_MASK << \
-	            GALV_SESS_MSG_TYPE_FLAG_BIT)))
-
 struct galv_sess_msg_head {
-	uint8_t  flags;
-	uint8_t  xchgno; /* eXCHGange identification number */
-	uint16_t prclsz; /* Parcel size including this header */
+	uint8_t  resv;
+	uint8_t  type;
+	uint16_t xchg; /* eXCHGange identification number */
+	uint32_t size; /* Message size including this header */
 	char     data[0];
 } __packed;
-
-static inline
-enum galv_sess_msg_multi
-galv_sess_msg_head_multi(const struct galv_sess_msg_head * __restrict head)
-{
-	galv_assert_intern(head);
-
-	return (head->flags >> GALV_SESS_MSG_MULTI_FLAG_BIT) &
-	       GALV_SESS_MSG_MULTI_FLAG_MASK;
-}
 
 static inline
 enum galv_sess_msg_type
@@ -121,29 +191,141 @@ galv_sess_msg_head_type(const struct galv_sess_msg_head * __restrict head)
 {
 	galv_assert_intern(head);
 
-	return (head->flags >> GALV_SESS_MSG_TYPE_FLAG_BIT) &
-	       GALV_SESS_MSG_TYPE_FLAG_MASK;
-}
-
-static inline
-uint8_t
-galv_sess_msg_head_xchgno(const struct galv_sess_msg_head * __restrict head)
-{
-	galv_assert_intern(head);
-
-	return head->xchgno;
+	return (enum galv_sess_msg_head)head->type;
 }
 
 static inline
 uint16_t
-galv_sess_msg_head_prclsz(const struct galv_sess_msg_head * __restrict head)
+galv_sess_msg_head_xchg(const struct galv_sess_msg_head * __restrict head)
 {
 	galv_assert_intern(head);
-	galv_assert_intern(stroll_aligned((size_t)&head->prclsz,
-	                                  sizeof(head->prclsz)));
+	galv_assert_intern(stroll_aligned((size_t)&head->xchg,
+	                                  sizeof(head->xchg)));
 
 #warning FIXME: do not convert from network byte order if unix socket !
-	return be16toh(head->prclsz);
+	return be16toh(head->xchg);
+}
+
+static inline
+uint16_t
+galv_sess_msg_head_size(const struct galv_sess_msg_head * __restrict head)
+{
+	galv_assert_intern(head);
+	galv_assert_intern(stroll_aligned((size_t)&head->size,
+	                                  sizeof(head->size)));
+
+#warning FIXME: do not convert from network byte order if unix socket !
+	return be32toh(head->size);
+}
+
+struct galv_sess_msg {
+	enum galv_sess_sgmt_type  type;
+	unsigned int              xchg;
+	size_t                    busy;
+	size_t                    size;
+};
+
+static
+bool
+galv_sess_sgmt_complete(const struct galv_sess_sgmt * __restrict segment)
+{
+	return (segment->multi == GALV_SESS_SGMT_LAST_MULTI) &&
+	       (segment->busy == segment->size);
+}
+
+static
+int
+galv_sess_load_sgmt(const struct galv_sess_sgmt * __restrict segment,
+                    struct stroll_slist * __restrict         fragments,
+                    struct stroll_buff * __restrict          buffer,
+                    struct galv_mem * __restrict             mem)
+{
+	if (galv_sess_sgmt_complete(segment)) {
+	}
+	else {
+		struct galv_sess_frag * frag;
+		size_t                  size;
+
+		if (!stroll_slist_empty(fragments)) {
+			frag = stroll_slist_last_entry(fragments,
+			                               struct galv_sess_frag,
+			                               node);
+			if (!galv_sess_frag_complete(frag)) {
+				segment->busy += galv_sess_load_frag(...);
+				return ...;
+			}
+
+			CHECK WHAT TO DO IF FRAGMENT IS FULL.
+		}
+
+
+		size = stroll_min(stroll_buff_capacity(buffer) -
+		                  stroll_buff_avail_head(buffer),
+		                  segment->size);
+		if (!size)
+			return -EAGAIN;
+
+		frag = galv_sess_alloc_frag();
+		if (!frag)
+			return -errno;
+
+		segment->busy += galv_sess_init_frag(frag, buff, mem, size);
+
+		galv_sess_nqueue_frag(frag, fragments);
+
+		return 0;
+	}
+}
+
+/*
+ * Parse and setup the FIRST segment of a message.
+ */
+static
+int
+galv_sess_setup_sgmt(struct galv_sess_sgmt * __restrict segment,
+                     struct stroll_buff * __restrict    buffer,
+                     struct galv_mem * __restrict       mem)
+{
+	struct galv_sess_sgmt_head head;
+
+	if (stroll_buff_busy(buffer) < sizeof(head))
+		return -EAGAIN;
+
+	/* Perform a copy since network data may be unaligned... */
+	memcpy(&head,
+	       stroll_buff_data(buffer, galv_mem_data(mem)),
+	       sizeof(head));
+
+	/* Ensure the type of segment is valid. */
+	segment->type = galv_sess_sgmt_head_type(&head);
+	galv_assert_intern(segment->type >= 0);
+	if (segment->type >= GALV_SESS_SGMT_TYPE_NR)
+		return -EPROTO;
+
+	/*
+	 * Retrieve segment size and make sure it is not larger than our maximum
+	 * buffer capacity.
+	 */
+	segment->size = (size_t)galv_sess_sgmt_head_size(&head);
+	if ((segment->size <= sizeof(head)) ||
+	    (segment->size > stroll_buff_capacity(buffer)))
+		return -EMSGSIZE;
+
+	/* Is this segment part of a multipart message. */
+	segment->multi = galv_sess_sgmt_head_multi(&head);
+
+	/* Record exchange identifier for the current message. */
+	segment->xchg = (unsigned int)galv_sess_sgmt_head_xchg(&head);
+
+	/* No segment content bytes has been consummed yet. */
+	segment->busy = 0;
+
+	/* Exclude header from segment. */
+	segment->size -= sizeof(head);
+
+	stroll_buff_grow_head(buffer, sizeof(head));
+
+	return 0;
 }
 
 /******************************************************************************
@@ -166,15 +348,16 @@ struct galv_sess_parcel {
 #define galv_sess_assert_parcel(_prcl) \
 	galv_assert_intern(_prcl); \
 	galv_assert_intern(stroll_buff_capacity(&(_prcl)->base)); \
-	galv_assert_intern(!(_prcl)->next || (_prcl)->mem)
+	galv_assert_intern(!(_prcl)->next || (_prcl)->mem); \
+	galv_assert_intern(parcel->mem || !stroll_buff_busy(&parcel->base)); \
+	galv_assert_intern(parcel->mem || \
+	                   !stroll_buff_avail_head(&parcel->base));
 
 static
 size_t
 galv_sess_parcel_busy(const struct galv_sess_parcel * __restrict parcel)
 {
 	galv_sess_assert_parcel(parcel);
-	galv_assert_intern(parcel->mem ||
-	                   !stroll_buff_avail_head(&parcel->base));
 
 	return stroll_buff_busy(&parcel->base);
 }
@@ -184,8 +367,6 @@ bool
 galv_sess_parcel_full(const struct galv_sess_parcel * __restrict parcel)
 {
 	galv_sess_assert_parcel(parcel);
-	galv_assert_intern(parcel->mem ||
-	                   !stroll_buff_avail_head(&parcel->base));
 
 	return !stroll_buff_avail_tail(&parcel->base);
 }
@@ -205,8 +386,6 @@ galv_sess_load_parcel(struct galv_sess_parcel * __restrict parcel,
 	                   stroll_buff_capacity(buff));
 	galv_assert_intern(stroll_buff_busy(buff));
 	galv_assert_intern(mem);
-	galv_assert_intern(parcel->mem ||
-	                   !stroll_buff_avail_head(&parcel->base));
 	galv_assert_intern(!parcel->mem || parcel->mem == mem);
 
 	size_t bytes;
@@ -234,7 +413,7 @@ galv_sess_load_parcel(struct galv_sess_parcel * __restrict parcel,
  * @param[in]  size   Maximum size of this parcel
  */
 static
-void
+size_t
 galv_sess_init_parcel(struct galv_sess_parcel * __restrict  parcel,
                       const struct stroll_buff * __restrict buff,
                       struct galv_mem * __restrict          mem,
@@ -247,15 +426,37 @@ galv_sess_init_parcel(struct galv_sess_parcel * __restrict  parcel,
 	galv_assert_intern(size <= stroll_buff_capacity(buff));
 
 	size_t off = stroll_buff_avail_head(buff);
+	size_t bytes = 0;
 
 	size = stroll_min(size, stroll_buff_capacity(buff) - off);
-	if (size)
-		stroll_buff_setup(&parcel->base, off + size, off, 0);
-	else
+	if (size) {
+		/*
+		 * There are network bytes sitting into `buff' that must be
+		 * assigned to this parcel.
+		 * Detect how many of them can be assigned to this parcel, set
+		 * it up with them and tell `buff' that we consummed them.
+		 */
+		bytes = stroll_min(stroll_buff_busy(buff),
+		                   stroll_buff_avail_tail(&parcel->base));
+		stroll_buff_setup(&parcel->base, off + size, off, bytes);
+		stroll_buff_grow_head(buff, bytes);
+
+		parcel->mem = galv_mem_acquire(mem);
+	}
+	else {
+		/*
+		 * `buff' does contain no more usable bytes. Setup an empty
+		 * parcel so that next buffer given to galv_sess_load_parcel()
+		 * may be used to fillup this parcel.
+		 */
 		stroll_buff_setup(&parcel->base, size, 0, 0);
 
+		parcel->mem = NULL;
+	}
+
 	parcel->next = NULL;
-	parcel->mem = NULL;
+
+	return 0;
 }
 
 static
@@ -268,44 +469,6 @@ galv_sess_fini_parcel(struct galv_sess_parcel * __restrict parcel,
 
 	if (parcel->mem)
 		galv_mem_release(parcel->mem, alloc);
-}
-
-static
-struct galv_sess_parcel *
-galv_sess_create_parcel(struct stroll_palloc *                alloc,
-                        const struct stroll_buff * __restrict buff,
-                        struct galv_mem * __restrict          mem,
-                        size_t                                size)
-{
-	galv_assert_intern(alloc);
-	galv_assert_intern(buff);
-	galv_assert_intern(mem);
-	galv_assert_intern(size);
-	galv_assert_intern(size <= stroll_buff_capacity(buff));
-
-	struct galv_sess_parcel * prcl;
-
-	prcl = stroll_palloc_alloc(alloc);
-	if (!prcl)
-		return NULL;
-
-	galv_sess_init_parcel(prcl, buff, mem, size);
-
-	return prcl;
-}
-
-static
-void
-galv_sess_destroy_parcel(struct galv_sess_parcel * __restrict parcel,
-                         struct stroll_lalloc * __restrict    mem_alloc,
-                         struct stroll_palloc * __restrict    prcl_alloc)
-{
-	galv_sess_assert_parcel(parcel);
-	galv_assert_intern(mem_alloc);
-	galv_assert_intern(prcl_alloc);
-
-	galv_sess_fini_parcel(parcel, mem_alloc);
-	stroll_palloc_free(prcl_alloc, parcel);
 }
 
 #if 0
@@ -971,4 +1134,5 @@ galv_sess_conn_on_may_xfer(struct galv_conn * __restrict   conn,
 
 	return ret;
 }
+#endif
 #endif
