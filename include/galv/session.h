@@ -33,6 +33,17 @@ struct galv_sess {
 	galv_assert_api(_sess); \
 	galv_assert_api((_sess)->conn)
 
+static inline
+struct galv_buff_queue *
+galv_sess_recv_buffq(const struct galv_sess * __restrict session)
+{
+	galv_sess_assert_api(session);
+
+STROLL_IGNORE_WARN("-Wcast-qual")
+	return (struct galv_buff_queue *)&session->recv_buffq;
+STROLL_RESTORE_WARN
+}
+
 extern int
 galv_sess_init(struct galv_sess * __restrict session,
                struct galv_conn * __restrict conn,

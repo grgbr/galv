@@ -18,6 +18,74 @@
  * Session protocol message and header
  ******************************************************************************/
 
+struct galv_sess_sgmt {
+	size_t busy;
+	size_t size;
+};
+
+struct galv_sess_sgmt_head {
+	uint16_t size;    /* Size of network data segment */
+	char     data[0];
+} __packed;
+
+static
+int
+galv_sess_recv_sgmt_head(struct galv_sess * __restrict      session,
+                         struct galv_sess_sgmt * __restrict segment)
+{
+	struct galv_buff_queue *   queue;
+	struct galv_buff *         buff;
+	size_t                     busy;
+	struct galv_buff *         next;
+	struct galv_sess_sgmt_head head;
+
+	queue = galv_sess_recv_buffq(session);
+	galv_assert_intern(!galv_buff_queue_empty(queue));
+
+	buff = galv_buff_peek_queue_first(queue);
+	busy = galv_buff_busy(buff);
+	galv_assert_intern(busy);
+
+	next = galv_buff_next(buff);
+
+	if (busy >= sizeof(head)) {
+		memcpy(&head, galv_buff_data(buff), sizeof(head));
+		galv_buff_grow_head(buff, sizeof(head));
+		if (!galv_buff_busy(buff) && next) {
+			/* Current buffer has been completely drained. */
+			galv_buff_dqueue(queue);
+			galv_buff_release(buff);
+		}
+	}
+	else if (next) {
+		size_t sz = sizeof(head) - busy;
+
+		galv_assert_intern(galv_buff_busy(next));
+		if (sz > galv_buff_busy(next))
+			return -EAGAIN;
+
+		memcpy(&head, galv_buff_data(buff), busy);
+		galv_buff_grow_head(buff, busy);
+		galv_buff_dqueue(queue);
+		galv_buff_release(buff);
+
+		memcpy((uint8_t *)&head + busy, galv_buff_data(next), sz);
+		galv_buff_grow_head(next, sz);
+
+		galv_assert_intern(galv_buff_busy(next) ||
+		                   !galv_buff_next(next));
+
+	}
+	else
+		return -EAGAIN;
+
+	segment->busy = 0;
+#warning FIXME: do not convert from network byte order if unix socket !
+	segment->size = (size_t)be16toh(head.size);
+
+	return 0;
+}
+
 enum galv_sess_msg_type {
 	GALV_SESS_MSG_REQUEST_TYPE = 0,
 	GALV_SESS_MSG_REPLY_TYPE   = 1,
@@ -25,12 +93,16 @@ enum galv_sess_msg_type {
 	GALV_SESS_MSG_TYPE_NR
 };
 
+#define GALV_SESS_MSG_TYPE_FLAG_BIT   (0U)
+#define GALV_SESS_MSG_TYPE_FLAG_MASK  (0x3U)
+#define GALV_SESS_MSG_VALID_FLAG_MASK \
+	((uint8_t) \
+	 (GALV_SESS_MSG_TYPE_FLAG_MASK << GALV_SESS_MSG_TYPE_FLAG_BIT))
+
 struct galv_sess_msg_head {
-	uint8_t  resv; /* Reserved for future use. */
-	uint8_t  type; /* Type of exchange */
-	uint16_t xchg; /* eXCHGange identification number */
-	uint32_t size; /* Message size including this header */
-	char     data[0];
+	uint8_t                    flags; /* Type of exchange */
+	uint8_t                    xchg;  /* eXCHGange identification number */
+	struct galv_sess_sgmt_head sgmt;  /* Network data segment */
 } __packed;
 
 static
@@ -39,31 +111,17 @@ galv_sess_msg_head_type(const struct galv_sess_msg_head * __restrict head)
 {
 	galv_assert_intern(head);
 
-	return (enum galv_sess_msg_type)head->type;
+	return (head->flags >> GALV_SESS_MSG_TYPE_FLAG_BIT) &
+	       GALV_SESS_MSG_TYPE_FLAG_MASK;
 }
 
 static
-uint16_t
+uint8_t
 galv_sess_msg_head_xchg(const struct galv_sess_msg_head * __restrict head)
 {
 	galv_assert_intern(head);
-	galv_assert_intern(stroll_aligned((size_t)&head->xchg,
-	                                  sizeof(head->xchg)));
 
-#warning FIXME: do not convert from network byte order if unix socket !
-	return be16toh(head->xchg);
-}
-
-static
-uint32_t
-galv_sess_msg_head_size(const struct galv_sess_msg_head * __restrict head)
-{
-	galv_assert_intern(head);
-	galv_assert_intern(stroll_aligned((size_t)&head->size,
-	                                  sizeof(head->size)));
-
-#warning FIXME: do not convert from network byte order if unix socket !
-	return be32toh(head->size);
+	return head->xchg;
 }
 
 /******************************************************************************
@@ -101,7 +159,7 @@ galv_sess_recv_tail_buff(struct galv_sess * __restrict session,
 	                   (size_t)SSIZE_MAX);
 	vecs[0].iov_base = galv_buff_tail(tail_buff);
 	vecs[0].iov_len = tail_size;
-	vecs[1].iov_base = galv_buff_data(nevv);
+	vecs[1].iov_base = galv_buff_mem(nevv);
 	vecs[1].iov_len = galv_buff_capacity(nevv);
 
 	ret = galv_conn_recvmsg(session->conn, &mhdr, 0);
@@ -140,7 +198,7 @@ galv_sess_recv_new_buff(struct galv_sess * __restrict session)
 		return -errno;
 
 	size = galv_buff_capacity(buff);
-	ret = galv_conn_recv(session->conn, galv_buff_data(buff), size, 0);
+	ret = galv_conn_recv(session->conn, galv_buff_mem(buff), size, 0);
 	galv_assert_intern(ret);
 	if (ret > 0) {
 		galv_buff_grow_tail(buff, (size_t)ret);
@@ -164,7 +222,7 @@ galv_sess_recv_buff(struct galv_sess * __restrict session)
 		struct galv_buff * buff;
 		size_t             size;
 
-		buff = galv_buff_peek_queue_tail(&session->recv_buffq);
+		buff = galv_buff_peek_queue_last(&session->recv_buffq);
 		size = galv_buff_avail_tail(buff);
 		if (size)
 			return galv_sess_recv_tail_buff(session, buff, size);

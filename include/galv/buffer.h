@@ -66,7 +66,7 @@ struct galv_buff {
 	struct stroll_slist_node  queue;
 	unsigned long             ref;
 	struct galv_buff_fabric * fabric;
-	uint8_t                   data[0];
+	uint8_t                   mem[0];
 };
 
 #define galv_buff_assert_api(_buff) \
@@ -75,6 +75,45 @@ struct galv_buff {
 	galv_assert_api((_buff)->fabric); \
 	galv_assert_api(stroll_buff_capacity(&(_buff)->base) == \
 	                galv_buff_fabric_capacity((_buff)->fabric))
+
+static inline
+size_t
+galv_buff_capacity(const struct galv_buff * __restrict buffer)
+{
+	galv_buff_assert_api(buffer);
+
+	return stroll_buff_capacity(&buffer->base);
+}
+
+static inline
+uint8_t *
+galv_buff_mem(const struct galv_buff * __restrict buffer)
+{
+	galv_buff_assert_api(buffer);
+
+STROLL_IGNORE_WARN("-Wcast-qual")
+	return (uint8_t *)buffer->mem;
+STROLL_RESTORE_WARN
+}
+
+static inline
+size_t
+galv_buff_busy(const struct galv_buff * __restrict buffer)
+{
+	galv_buff_assert_api(buffer);
+
+	return stroll_buff_busy(&buffer->base);
+}
+
+static inline
+uint8_t *
+galv_buff_data(const struct galv_buff * __restrict buffer)
+{
+	galv_buff_assert_api(buffer);
+	galv_assert_api(galv_buff_busy(buffer));
+
+	return stroll_buff_data(&buffer->base, buffer->mem);
+}
 
 static inline
 size_t
@@ -101,27 +140,35 @@ galv_buff_tail(const struct galv_buff * __restrict buffer)
 {
 	galv_assert_api(galv_buff_avail_tail(buffer) > 0);
 
-	return stroll_buff_tail(&buffer->base, buffer->data);
+	return stroll_buff_tail(&buffer->base, buffer->mem);
 }
 
 static inline
 size_t
-galv_buff_capacity(const struct galv_buff * __restrict buffer)
+galv_buff_avail_head(const struct galv_buff * __restrict buffer)
 {
 	galv_buff_assert_api(buffer);
 
-	return stroll_buff_capacity(&buffer->base);
+	return stroll_buff_avail_head(&buffer->base);
 }
 
 static inline
-uint8_t *
-galv_buff_data(const struct galv_buff * __restrict buffer)
+void
+galv_buff_grow_head(struct galv_buff * __restrict buffer, size_t bytes)
 {
 	galv_buff_assert_api(buffer);
+	galv_assert_api(galv_buff_avail_head(buffer) >= bytes);
 
-STROLL_IGNORE_WARN("-Wcast-qual")
-	return (uint8_t *)buffer->data;
-STROLL_RESTORE_WARN
+	return stroll_buff_grow_head(&buffer->base, bytes);
+}
+
+static inline
+struct galv_buff *
+galv_buff_next(struct galv_buff * __restrict buffer)
+{
+	struct stroll_slist_node * next = stroll_slist_next(&buffer->queue);
+
+	return next ? stroll_slist_entry(next, struct galv_buff, queue) : NULL;
 }
 
 static inline
@@ -166,7 +213,16 @@ galv_buff_nqueue(struct galv_buff_queue * __restrict queue,
 
 static inline
 struct galv_buff *
-galv_buff_peek_queue_tail(const struct galv_buff_queue * __restrict queue)
+galv_buff_peek_queue_first(const struct galv_buff_queue * __restrict queue)
+{
+	galv_assert_api(galv_buff_queue_empty(queue));
+
+	return stroll_slist_first_entry(&queue->base, struct galv_buff, queue);
+}
+
+static inline
+struct galv_buff *
+galv_buff_peek_queue_last(const struct galv_buff_queue * __restrict queue)
 {
 	galv_assert_api(galv_buff_queue_empty(queue));
 
