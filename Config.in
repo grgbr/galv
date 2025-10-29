@@ -84,8 +84,15 @@ config GALV_BUFF
 	help
 	  Build Galv library with network buffer support.
 
+config GALV_FRAG
+	bool
+	default n
+	help
+	  Build Galv library with network fragment support.
+
 config GALV_SESS
 	bool "Session protocol"
+	select GALV_FRAG
 	default n
 	help
 	  Build Galv library with session protocol support.

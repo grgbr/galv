@@ -14,14 +14,106 @@
 	galv_assert_intern(_sess); \
 	galv_assert_intern((_sess)->conn)
 
+static
+void
+galv_sess_drain_buff(struct galv_buff_queue * __restrict buffq,
+                     struct galv_buff * __restrict       buff,
+                     size_t                              size)
+{
+	galv_assert_intern(buffq);
+	galv_assert_intern(!galv_buff_queue_empty(buffq));
+	galv_assert_intern(buff);
+	galv_assert_intern(buff == galv_buff_queue_first(buffq));
+	galv_assert_intern(galv_buff_busy(buff));
+	galv_assert_intern(size <= galv_buff_busy(buff));
+
+	galv_buff_grow_head(buff, size);
+	galv_buff_shrink_queue(buffq, size);
+	if (galv_buff_busy(buff)) {
+		/* No more data stored into current buffer `buff'. */
+		if (!galv_buff_avail_tail(buff) || galv_buff_next(buff)) {
+			/*
+			 * Either:
+			 * - `buff' has no more room to store additional data at
+			 *   its tail end ;
+			 * - or, galv_sess_recv_buff() has already started to
+			 *   fill in a subsequent buffer in the receive queue.
+			 * In both cases, we cannot use current buffer `buff'
+			 * any more: release it.
+			 */
+			galv_buff_dqueue(buffq);
+			galv_buff_release(buff);
+		}
+	}
+}
+
+static
+void
+galv_sess_copyn_drain_buff(struct galv_buff_queue * __restrict buffq,
+                           struct galv_buff * __restrict       buff,
+                           uint8_t * __restrict                data,
+                           size_t                              size)
+{
+	galv_assert_intern(buffq);
+	galv_assert_intern(!galv_buff_queue_empty(buffq));
+	galv_assert_intern(buff);
+	galv_assert_intern(buff == galv_buff_queue_first(buffq));
+	galv_assert_intern(data);
+	galv_assert_intern(size);
+	galv_assert_intern(size <= galv_buff_busy(buff));
+
+	memcpy(data, galv_buff_data(buff), size);
+
+	galv_sess_drain_buff(buffq, buff, size);
+}
+
+static
+void
+galv_sess_copyn_drain_buffq(struct galv_buff_queue * __restrict buffq,
+                            uint8_t * __restrict                data,
+                            size_t                              size)
+{
+	galv_assert_intern(buffq);
+	galv_assert_intern(!galv_buff_queue_empty(buffq));
+	galv_assert_intern(data);
+	galv_assert_intern(size);
+	galv_assert_intern(size <= galv_buff_queue_busy(buffq));
+
+	struct galv_buff * buff = galv_buff_queue_first(buffq);
+	size_t             busy = galv_buff_busy(buff);
+
+	while (size > busy) {
+		galv_assert_intern(size < galv_buff_queue_busy(buffq));
+		galv_assert_intern(busy);
+
+		memcpy(data, galv_buff_data(buff), busy);
+		data += busy;
+		size -= busy;
+
+		galv_buff_dqueue(buffq);
+		galv_buff_release(buff);
+
+		buff = galv_buff_queue_first(buffq);
+		galv_assert_intern(buff);
+		busy = galv_buff_busy(buff);
+	}
+
+	galv_sess_copyn_drain_buff(buffq, buff, data, size);
+}
+
 /******************************************************************************
- * Session protocol message and header
+ * Session protocol segment and header
  ******************************************************************************/
 
 struct galv_sess_sgmt {
-	size_t busy;
 	size_t size;
+	size_t busy;
 };
+
+#define galv_sess_assert_sgmt(_sgmt) \
+	galv_assert_intern(_sgmt); \
+	galv_assert_intern((_sgmt)->size <= UINT16_MAX); \
+	galv_assert_intern((_sgmt)->busy <= (_sgmt)->size)
 
 struct galv_sess_sgmt_head {
 	uint16_t size;    /* Size of network data segment */
@@ -29,62 +121,133 @@ struct galv_sess_sgmt_head {
 } __packed;
 
 static
-int
-galv_sess_recv_sgmt_head(struct galv_sess * __restrict      session,
-                         struct galv_sess_sgmt * __restrict segment)
+bool
+galv_sess_sgmt_full(const struct galv_sess_sgmt * __restrict segment)
 {
-	struct galv_buff_queue *   queue;
-	struct galv_buff *         buff;
-	size_t                     busy;
-	struct galv_buff *         next;
+	galv_sess_assert_sgmt(segment);
+
+	return segment->busy == segment->size;
+}
+
+static
+int
+galv_sess_recv_sgmt_head(struct galv_sess_sgmt * __restrict  segment,
+                         struct galv_buff_queue * __restrict recvq)
+{
+	galv_sess_assert_sgmt(segment);
+	galv_assert_intern(recvq);
+	galv_assert_intern(!galv_buff_queue_empty(recvq));
+
 	struct galv_sess_sgmt_head head;
 
-	queue = galv_sess_recv_buffq(session);
-	galv_assert_intern(!galv_buff_queue_empty(queue));
+	if (galv_buff_queue_busy(recvq) >= sizeof(head)) {
+		size_t sz;
 
-	buff = galv_buff_peek_queue_first(queue);
-	busy = galv_buff_busy(buff);
-	galv_assert_intern(busy);
+		galv_sess_copyn_drain_buffq(recvq,
+		                            (uint8_t *)&head,
+		                            sizeof(head));
 
-	next = galv_buff_next(buff);
+#warning FIXME: do not convert from network byte order if unix socket !
+		sz = (size_t)be16toh(head.size);
+		if (!sz)
+			return -ENODATA;
 
-	if (busy >= sizeof(head)) {
-		memcpy(&head, galv_buff_data(buff), sizeof(head));
-		galv_buff_grow_head(buff, sizeof(head));
-		if (!galv_buff_busy(buff) && next) {
-			/* Current buffer has been completely drained. */
-			galv_buff_dqueue(queue);
-			galv_buff_release(buff);
-		}
-	}
-	else if (next) {
-		size_t sz = sizeof(head) - busy;
+		segment->size = sz;
+		segment->busy = 0;
 
-		galv_assert_intern(galv_buff_busy(next));
-		if (sz > galv_buff_busy(next))
-			return -EAGAIN;
-
-		memcpy(&head, galv_buff_data(buff), busy);
-		galv_buff_grow_head(buff, busy);
-		galv_buff_dqueue(queue);
-		galv_buff_release(buff);
-
-		memcpy((uint8_t *)&head + busy, galv_buff_data(next), sz);
-		galv_buff_grow_head(next, sz);
-
-		galv_assert_intern(galv_buff_busy(next) ||
-		                   !galv_buff_next(next));
-
+		return 0;
 	}
 	else
 		return -EAGAIN;
+}
 
-	segment->busy = 0;
-#warning FIXME: do not convert from network byte order if unix socket !
-	segment->size = (size_t)be16toh(head.size);
+static
+int
+galv_sess_recv_sgmt_frag(struct galv_sess_sgmt * __restrict   segment,
+                         struct galv_buff_queue * __restrict  recvq,
+                         struct galv_frag_list * __restrict   fragments,
+                         struct galv_frag_fabric * __restrict fabric)
+{
+	galv_sess_assert_sgmt(segment);
+	galv_assert_intern(segment->size);
+	galv_assert_intern(!galv_sess_sgmt_full(segment));
+	galv_assert_intern(recvq);
+	galv_assert_intern(galv_buff_queue_busy(recvq));
+	galv_assert_intern(!galv_buff_queue_empty(recvq));
+	galv_assert_intern(fragments);
+	galv_assert_intern(fabric);
+
+	struct galv_frag * frag = (!galv_frag_list_empty(fragments))
+	                          ? galv_frag_list_last(fragments)
+	                          : NULL;
+	struct galv_buff * buff = galv_buff_queue_first(recvq);
+	size_t             bytes;
+
+	if (!frag || galv_frag_full(frag)) {
+		frag = galv_frag_create(fabric,
+		                        segment->size - segment->busy,
+		                        buff);
+		if (!frag)
+			return -errno;
+
+		galv_frag_nlist(fragments, frag);
+	}
+
+	bytes = galv_frag_load(frag, buff);
+	galv_assert_intern(bytes);
+
+	galv_sess_drain_buff(recvq, buff, bytes);
+
+	segment->busy += bytes;
 
 	return 0;
 }
+
+static
+void
+galv_sess_reset_sgmt(struct galv_sess_sgmt * __restrict segment)
+{
+	galv_assert_intern(segment);
+
+	segment->size = 0;
+	segment->busy = 0;
+}
+
+static
+int
+galv_sess_recv_sgmt(struct galv_sess_sgmt * __restrict   segment,
+                    struct galv_buff_queue * __restrict  recvq,
+                    struct galv_frag_list * __restrict   fragments,
+                    struct galv_frag_fabric * __restrict fabric)
+{
+	galv_sess_assert_sgmt(segment);
+	galv_assert_intern(recvq);
+	galv_assert_intern(galv_buff_queue_busy(recvq));
+	galv_assert_intern(!galv_buff_queue_empty(recvq));
+	galv_assert_intern(fragments);
+	galv_assert_intern(fabric);
+
+	if (!segment->size) {
+		int ret = galv_sess_recv_sgmt_head(segment, recvq);
+
+		if (ret)
+			return ret;
+	}
+
+	galv_assert_intern(!galv_sess_sgmt_full(segment));
+	do {
+		galv_sess_recv_sgmt_frag(segment, recvq, fragments, fabric);
+	} while (galv_buff_queue_busy(recvq) && !galv_sess_sgmt_full(segment));
+
+	if (galv_sess_sgmt_full(segment))
+		galv_sess_reset_sgmt(segment);
+
+	return galv_buff_queue_busy(recvq) ? 0 : -EAGAIN;
+}
+
+/******************************************************************************
+ * Session protocol message and header
+ ******************************************************************************/
 
 enum galv_sess_msg_type {
 	GALV_SESS_MSG_REQUEST_TYPE = 0,
@@ -104,6 +267,11 @@ struct galv_sess_msg_head {
 	uint8_t                    xchg;  /* eXCHGange identification number */
 	struct galv_sess_sgmt_head sgmt;  /* Network data segment */
 } __packed;
+
+#define GALV_SESS_MSG_XCHG_BITS \
+	(sizeof_member(struct galv_sess_msg_head, xchg) * CHAR_BIT)
+#define GALV_SESS_MSG_XCHG_NR \
+	(1U << GALV_SESS_MSG_XCHG_BITS)
 
 static
 enum galv_sess_msg_type
@@ -168,6 +336,8 @@ galv_sess_recv_tail_buff(struct galv_sess * __restrict session,
 		size_t size = tail_size + galv_buff_capacity(nevv);
 
 		galv_buff_grow_tail(tail_buff, tail_size);
+		galv_buff_grow_queue(&session->recv_buffq, tail_size);
+
 		galv_buff_grow_tail(nevv, (size_t)ret - tail_size);
 		galv_buff_nqueue(&session->recv_buffq, nevv);
 
@@ -175,6 +345,8 @@ galv_sess_recv_tail_buff(struct galv_sess * __restrict session,
 	}
 	else if (ret > 0) {
 		galv_buff_grow_tail(tail_buff, (size_t)ret);
+		galv_buff_grow_queue(&session->recv_buffq, (size_t)ret);
+
 		ret = -EAGAIN;
 	}
 
@@ -207,8 +379,6 @@ galv_sess_recv_new_buff(struct galv_sess * __restrict session)
 		ret = ((size_t)ret != size) ? -EAGAIN : 0;
 	}
 
-	galv_buff_release(buff);
-
 	return (int)ret;
 }
 
@@ -222,7 +392,7 @@ galv_sess_recv_buff(struct galv_sess * __restrict session)
 		struct galv_buff * buff;
 		size_t             size;
 
-		buff = galv_buff_peek_queue_last(&session->recv_buffq);
+		buff = galv_buff_queue_last(&session->recv_buffq);
 		size = galv_buff_avail_tail(buff);
 		if (size)
 			return galv_sess_recv_tail_buff(session, buff, size);
@@ -235,14 +405,21 @@ int
 galv_sess_init(struct galv_sess * __restrict session,
                struct galv_conn * __restrict conn,
                unsigned int                  buff_nr,
-               size_t                        buff_capa)
+               size_t                        buff_capa,
+               unsigned int                  frag_nr)
 {
 #define GALV_SESS_BUFF_NR_MIN (2U)
 #define GALV_SESS_BUFF_NR_MAX (1024U)
+#define GALV_SESS_FRAG_NR_MIN \
+	(2 * GALV_SESS_MSG_XCHG_NR * GALV_SESS_BUFF_NR_MIN)
+#define GALV_SESS_FRAG_NR_MAX \
+	(2 * GALV_SESS_MSG_XCHG_NR * GALV_SESS_BUFF_NR_MAX)
 	galv_assert_api(session);
 	galv_assert_api(conn);
 	galv_assert_api(buff_nr >= GALV_SESS_BUFF_NR_MIN);
 	galv_assert_api(buff_nr <= GALV_SESS_BUFF_NR_MAX);
+	galv_assert_api(frag_nr >= GALV_SESS_FRAG_NR_MIN);
+	galv_assert_api(frag_nr <= GALV_SESS_FRAG_NR_MAX);
 
 	int err;
 
@@ -250,10 +427,19 @@ galv_sess_init(struct galv_sess * __restrict session,
 	if (err)
 		return err;
 
+	err = galv_frag_init_fabric(&session->frag_fab, frag_nr);
+	if (err)
+		goto fini_buff_fab;
+
 	session->conn = conn;
 	galv_buff_init_queue(&session->recv_buffq);
 
 	return 0;
+
+fini_buff_fab:
+	galv_buff_fini_fabric(&session->buff_fab);
+
+	return err;
 }
 
 void
@@ -261,10 +447,11 @@ galv_sess_fini(struct galv_sess * __restrict session)
 {
 	galv_sess_assert_api(session);
 
+	galv_frag_fini_fabric(&session->frag_fab);
+
 	while (!galv_buff_queue_empty(&session->recv_buffq))
 		galv_buff_release(galv_buff_dqueue(&session->recv_buffq));
 	galv_buff_fini_queue(&session->recv_buffq);
-
 	galv_buff_fini_fabric(&session->buff_fab);
 }
 

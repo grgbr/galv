@@ -95,16 +95,17 @@ void
 galv_buff_nqueue(struct galv_buff_queue * __restrict queue,
                  struct galv_buff * __restrict       buffer)
 {
-	galv_assert_api(queue);
-	galv_assert_api(buffer);
+	galv_buff_queue_assert_api(queue);
+	galv_buff_assert_api(buffer);
 
-	galv_buff_acquire(buffer);
 	stroll_slist_nqueue_back(&queue->base, &buffer->queue);
+	galv_buff_grow_queue(queue, galv_buff_busy(buffer));
 }
 
 struct galv_buff *
 galv_buff_dqueue(struct galv_buff_queue * __restrict queue)
 {
+	galv_buff_queue_assert_api(queue);
 	galv_assert_api(!galv_buff_queue_empty(queue));
 
 	struct galv_buff * buff;
@@ -112,7 +113,9 @@ galv_buff_dqueue(struct galv_buff_queue * __restrict queue)
 	buff = stroll_slist_entry(stroll_slist_dqueue_front(&queue->base),
 	                          struct galv_buff,
 	                          queue);
-	galv_buff_release(buff);
+	galv_buff_assert_api(buff);
+
+	galv_buff_shrink_queue(queue, galv_buff_busy(buff));
 
 	return buff;
 }

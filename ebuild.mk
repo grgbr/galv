@@ -18,6 +18,7 @@ headers         += $(call kconf_enabled,GALV_FABRIC,galv/fabric.h)
 headers         += $(call kconf_enabled,GALV_REPO,galv/repo.h)
 headers         += $(call kconf_enabled,GALV_UNIX,galv/unix.h)
 headers         += $(call kconf_enabled,GALV_BUFF,galv/buffer.h)
+headers         += $(call kconf_enabled,GALV_FRAG,galv/priv/fragment.h)
 
 subdirs         := lib
 

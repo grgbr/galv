@@ -20,6 +20,7 @@
 #define _GALV_SESSION_H
 
 #include <galv/buffer.h>
+#include <galv/priv/fragment.h>
 
 struct galv_conn;
 
@@ -27,6 +28,7 @@ struct galv_sess {
 	struct galv_conn *      conn;
 	struct galv_buff_queue  recv_buffq;
 	struct galv_buff_fabric buff_fab;
+	struct galv_frag_fabric frag_fab;
 };
 
 #define galv_sess_assert_api(_sess) \
@@ -48,7 +50,8 @@ extern int
 galv_sess_init(struct galv_sess * __restrict session,
                struct galv_conn * __restrict conn,
                unsigned int                  buff_nr,
-               size_t                        buff_capa)
+               size_t                        buff_capa,
+               unsigned int                  frag_nr)
 	__export_public;
 
 extern void
