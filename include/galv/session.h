@@ -20,6 +20,7 @@
 #define _GALV_SESSION_H
 
 #include <galv/buffer.h>
+#include <galv/priv/session.h>
 #include <galv/priv/fragment.h>
 
 struct galv_conn;
@@ -29,29 +30,22 @@ struct galv_sess {
 	struct galv_buff_queue  recv_buffq;
 	struct galv_buff_fabric buff_fab;
 	struct galv_frag_fabric frag_fab;
+	struct stroll_slist     recv_msgq;
+	unsigned long           recv_bmap[GALV_SESS_RECV_BMAP_WORD_NR];
+	struct stroll_palloc    msg_fab;
 };
 
 #define galv_sess_assert_api(_sess) \
 	galv_assert_api(_sess); \
 	galv_assert_api((_sess)->conn)
 
-static inline
-struct galv_buff_queue *
-galv_sess_recv_buffq(const struct galv_sess * __restrict session)
-{
-	galv_sess_assert_api(session);
-
-STROLL_IGNORE_WARN("-Wcast-qual")
-	return (struct galv_buff_queue *)&session->recv_buffq;
-STROLL_RESTORE_WARN
-}
-
 extern int
 galv_sess_init(struct galv_sess * __restrict session,
                struct galv_conn * __restrict conn,
                unsigned int                  buff_nr,
                size_t                        buff_capa,
-               unsigned int                  frag_nr)
+               unsigned int                  frag_nr,
+               unsigned int                  msg_nr)
 	__export_public;
 
 extern void

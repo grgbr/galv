@@ -132,6 +132,9 @@ struct galv_frag_list {
 	struct stroll_slist base;
 };
 
+#define galv_frag_list_foreach(_list, _frag) \
+	stroll_slist_foreach_entry(_list, _frag, list)
+
 static inline
 bool
 galv_frag_list_empty(const struct galv_frag_list * __restrict list)
