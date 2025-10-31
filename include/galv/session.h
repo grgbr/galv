@@ -26,18 +26,21 @@
 struct galv_conn;
 
 struct galv_sess {
-	struct galv_conn *      conn;
-	struct galv_buff_queue  recv_buffq;
-	struct galv_buff_fabric buff_fab;
-	struct galv_frag_fabric frag_fab;
-	struct stroll_slist     recv_msgq;
-	unsigned long           recv_bmap[GALV_SESS_RECV_BMAP_WORD_NR];
-	struct stroll_palloc    msg_fab;
+	struct galv_conn *         conn;
+	struct galv_buff_queue     recv_buffq;
+	struct galv_buff_fabric    buff_fab;
+	struct galv_frag_fabric    frag_fab;
+	struct galv_sess_msg_queue recv_msgq;
+	struct stroll_palloc       msg_fab;
 };
 
 #define galv_sess_assert_api(_sess) \
 	galv_assert_api(_sess); \
 	galv_assert_api((_sess)->conn)
+
+extern int
+galv_sess_recv(struct galv_sess * __restrict session)
+	__export_public;
 
 extern int
 galv_sess_init(struct galv_sess * __restrict session,

@@ -33,7 +33,9 @@ struct galv_sess_head {
 #define GALV_SESS_MSG_XCHG_NR \
 	(1U << GALV_SESS_HEAD_XCHG_BITS)
 
-#define GALV_SESS_RECV_BMAP_WORD_NR \
-	STROLL_FBMAP_WORD_NR(GALV_SESS_MSG_XCHG_NR)
+struct galv_sess_msg_queue {
+	struct stroll_slist base;
+	unsigned long       bmap[STROLL_FBMAP_WORD_NR(GALV_SESS_MSG_XCHG_NR)];
+};
 
 #endif /* _GALV_PRIV_SESSION_H */

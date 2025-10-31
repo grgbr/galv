@@ -427,7 +427,6 @@ galv_sess_recv_msg_head(struct galv_sess_msg * __restrict   message,
 	if (galv_buff_queue_busy(recvq) >= sizeof(struct galv_sess_head)) {
 		struct galv_sess_head    head;
 		enum galv_sess_head_type type;
-		unsigned int             xchg;
 		uint16_t                 sz;
 
 		galv_sess_copyn_drain_buffq(recvq,
@@ -441,51 +440,19 @@ galv_sess_recv_msg_head(struct galv_sess_msg * __restrict   message,
 		if (type >= GALV_SESS_HEAD_TYPE_NR)
 			return -EPROTO;
 
-#warning Check that xchg / message ID slot is free
-		xchg = (unsigned int)galv_sess_head_xchg(&head);
-
 		sz = galv_sess_msg_head_size(&head);
 		if (!sz)
 			return -ENODATA;
 
 		message->multi = galv_sess_head_multi(&head);
 		message->type = type;
-		message->xchg = xchg;
+		message->xchg = (unsigned int)galv_sess_head_xchg(&head);
 		galv_sess_start_sgmt(&message->sgmt, (size_t)sz);
 
 		return 0;
 	}
 	else
 		return -EAGAIN;
-}
-
-static
-int
-galv_sess_recv_msg(struct galv_sess_msg * __restrict    message,
-                   struct galv_buff_queue * __restrict  recvq,
-                   struct galv_frag_fabric * __restrict fabric)
-{
-	galv_sess_assert_msg_intern(message);
-	galv_assert_intern(!galv_sess_msg_full(message));
-	galv_assert_intern(recvq);
-	galv_assert_intern(galv_buff_queue_busy(recvq));
-	galv_assert_intern(!galv_buff_queue_empty(recvq));
-	galv_assert_intern(fabric);
-
-	int ret;
-
-	if (!galv_sess_msg_loading(message)) {
-		ret = galv_sess_recv_msg_head(message, recvq);
-		if (ret)
-			return ret;
-	}
-
-	galv_assert_intern(!galv_sess_msg_full(message));
-	do {
-		ret = galv_sess_recv_sgmt(message, recvq, fabric);
-	} while (!ret && !galv_sess_msg_full(message));
-
-	return ret;
 }
 
 static
@@ -513,6 +480,101 @@ galv_sess_fini_msg(struct galv_sess_msg * __restrict message)
 
 		galv_frag_destroy(frag);
 	}
+}
+
+/******************************************************************************
+ * Session message queue
+ ******************************************************************************/
+
+static
+bool
+galv_sess_msg_queue_empty(const struct galv_sess_msg_queue * __restrict queue)
+{
+	galv_assert_intern(queue);
+	galv_assert_intern(stroll_slist_empty(&queue->base) ^
+	                   _stroll_fbmap_test_all(queue->bmap,
+	                                          GALV_SESS_MSG_XCHG_NR));
+
+	return stroll_slist_empty(&queue->base);
+}
+
+static
+bool
+galv_sess_may_queue_msg(const struct galv_sess_msg_queue * __restrict queue,
+                        const struct galv_sess_msg * __restrict       message)
+{
+	galv_assert_intern(queue);
+	galv_assert_intern(stroll_slist_empty(&queue->base) ^
+	                   _stroll_fbmap_test_all(queue->bmap,
+	                                          GALV_SESS_MSG_XCHG_NR));
+	galv_sess_assert_msg_intern(message);
+
+	return !_stroll_fbmap_test(queue->bmap, message->xchg);
+}
+
+static
+struct galv_sess_msg *
+galv_sess_msg_queue_tail(const struct galv_sess_msg_queue * __restrict queue)
+{
+	struct galv_sess_msg * msg;
+
+	msg = stroll_slist_last_entry(&queue->base,
+	                              struct galv_sess_msg,
+	                              queue);
+	galv_assert_intern(_stroll_fbmap_test(queue->bmap, msg->xchg));
+	galv_sess_assert_msg_intern(msg);
+
+	return msg;
+}
+
+static
+void
+galv_sess_nqueue_msg(struct galv_sess_msg_queue * __restrict queue,
+                     struct galv_sess_msg * __restrict       message)
+{
+	galv_sess_assert_msg_intern(message);
+	galv_assert_intern(galv_sess_may_queue_msg(queue, message));
+
+	stroll_slist_nqueue_back(&queue->base, &message->queue);
+	_stroll_fbmap_set(queue->bmap, message->xchg);
+}
+
+static
+struct galv_sess_msg *
+galv_sess_dqueue_msg(struct galv_sess_msg_queue * __restrict queue)
+{
+	galv_assert_intern(!galv_sess_msg_queue_empty(queue));
+
+	struct galv_sess_msg * msg;
+
+	msg = stroll_slist_entry(stroll_slist_dqueue_front(&queue->base),
+	                         struct galv_sess_msg,
+	                         queue);
+	galv_sess_assert_msg_intern(msg);
+	galv_assert_intern(_stroll_fbmap_test(queue->bmap, msg->xchg));
+	_stroll_fbmap_clear(queue->bmap, msg->xchg);
+
+	return msg;
+}
+
+static
+void
+galv_sess_init_msg_queue(struct galv_sess_msg_queue * __restrict queue)
+{
+	galv_assert_intern(queue);
+
+	stroll_slist_init(&queue->base);
+	_stroll_fbmap_clear_all(queue->bmap, GALV_SESS_MSG_XCHG_NR);
+}
+
+static
+void
+galv_sess_fini_msg_queue(struct galv_sess_msg_queue * __restrict queue)
+{
+	galv_assert_intern(queue);
+	galv_assert_intern(galv_sess_msg_queue_empty(queue));
+	galv_assert_intern(!_stroll_fbmap_test_all(queue->bmap,
+	                                           GALV_SESS_MSG_XCHG_NR));
 }
 
 /******************************************************************************
@@ -628,9 +690,6 @@ galv_sess_recv_buff(struct galv_sess * __restrict session)
 	return galv_sess_recv_new_buff(session);
 }
 
-#if 0
-FINISH ME!!!!!!!!
-make sure to update session->recv_bmap, session->recv_msgq...
 static
 struct galv_sess_msg *
 galv_sess_create_msg(struct galv_sess * __restrict session)
@@ -650,7 +709,7 @@ galv_sess_create_msg(struct galv_sess * __restrict session)
 
 static
 void
-galv_sess_msg_destroy(struct galv_sess * __restrict     session,
+galv_sess_destroy_msg(struct galv_sess * __restrict     session,
                       struct galv_sess_msg * __restrict message)
 {
 	galv_sess_assert_intern(session);
@@ -659,8 +718,72 @@ galv_sess_msg_destroy(struct galv_sess * __restrict     session,
 	galv_sess_fini_msg(message);
 	stroll_palloc_free(&session->msg_fab, message);
 }
-FINISH ME!!!!!!!!
-#endif
+
+static
+int
+galv_sess_recv_msg(struct galv_sess * __restrict     session,
+                   struct galv_sess_msg * __restrict message)
+{
+	galv_sess_assert_intern(session);
+	galv_sess_assert_msg_intern(message);
+	galv_assert_intern(!galv_sess_msg_full(message));
+	galv_assert_intern(&session->recv_buffq);
+	galv_assert_intern(galv_buff_queue_busy(&session->recv_buffq));
+	galv_assert_intern(!galv_buff_queue_empty(&session->recv_buffq));
+
+	int ret;
+
+	if (!galv_sess_msg_loading(message)) {
+		ret = galv_sess_recv_msg_head(message, &session->recv_buffq);
+		if (ret)
+			return ret;
+
+		if (!galv_sess_may_queue_msg(&session->recv_msgq, message))
+			return -EPROTO;
+	}
+
+	galv_assert_intern(!galv_sess_msg_full(message));
+	do {
+		ret = galv_sess_recv_sgmt(message,
+		                          &session->recv_buffq,
+		                          &session->frag_fab);
+	} while (!ret && !galv_sess_msg_full(message));
+
+	return ret;
+}
+
+int
+galv_sess_recv(struct galv_sess * __restrict session)
+{
+#warning LOOP ME!
+	int                    err;
+	struct galv_sess_msg * msg;
+
+	err = galv_sess_recv_buff(session);
+	if (err)
+		return err;
+
+	galv_assert_intern(galv_buff_queue_busy(&session->recv_buffq));
+	galv_assert_intern(!galv_buff_queue_empty(&session->recv_buffq));
+
+	msg = galv_sess_msg_queue_tail(&session->recv_msgq);
+	if (msg && !galv_sess_msg_full(msg))
+		return galv_sess_recv_msg(session, msg);
+
+	msg = galv_sess_create_msg(session);
+	if (!msg)
+		return -errno;
+
+	err = galv_sess_recv_msg(session, msg);
+	if (!err) {
+		galv_sess_nqueue_msg(&session->recv_msgq, msg);
+		return 0;
+	}
+
+	galv_sess_destroy_msg(session, msg);
+
+	return err;
+}
 
 int
 galv_sess_init(struct galv_sess * __restrict session,
@@ -682,7 +805,7 @@ galv_sess_init(struct galv_sess * __restrict session,
 	galv_assert_api(buff_nr <= GALV_SESS_BUFF_NR_MAX);
 	galv_assert_api(frag_nr >= GALV_SESS_FRAG_NR_MIN);
 	galv_assert_api(frag_nr <= GALV_SESS_FRAG_NR_MAX);
-	galv_assert_api(msg_nr >= frag_nr);
+	galv_assert_api(frag_nr >= msg_nr);
 
 	int err;
 
@@ -702,8 +825,7 @@ galv_sess_init(struct galv_sess * __restrict session,
 
 	session->conn = conn;
 	galv_buff_init_queue(&session->recv_buffq);
-	stroll_slist_init(&session->recv_msgq);
-	memset(session->recv_bmap, 0, sizeof(session->recv_bmap));
+	galv_sess_init_msg_queue(&session->recv_msgq);
 
 	return 0;
 
@@ -719,6 +841,12 @@ void
 galv_sess_fini(struct galv_sess * __restrict session)
 {
 	galv_sess_assert_api(session);
+
+	while (!galv_sess_msg_queue_empty(&session->recv_msgq))
+		galv_sess_destroy_msg(session,
+		                      galv_sess_dqueue_msg(&session->recv_msgq));
+	galv_sess_fini_msg_queue(&session->recv_msgq);
+	stroll_palloc_fini(&session->msg_fab);
 
 	galv_frag_fini_fabric(&session->frag_fab);
 
