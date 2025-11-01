@@ -9,7 +9,7 @@
 #define _GALV_PRIV_FRAGMENT_H
 
 #include <galv/buffer.h>
-#include <stroll/palloc.h>
+#include <stroll/falloc.h>
 
 struct galv_frag_fabric;
 
@@ -48,22 +48,20 @@ struct galv_frag {
  * Core network fragment fabric.
  */
 struct galv_frag_fabric {
-	struct stroll_palloc base;
+	unsigned int         cnt;
+	unsigned int         nr;
+	struct stroll_falloc base;
 };
 
 #define galv_frag_fabric_assert_api(_fabric) \
-	galv_assert_api(_fabric)
+	galv_assert_api(_fabric); \
+	galv_assert_api((_fabric)->nr); \
+	galv_assert_api((_fabric)->cnt <= (_fabric)->nr)
 
-static inline
-int
+extern void
 galv_frag_init_fabric(struct galv_frag_fabric * __restrict fabric,
                       unsigned int                         nr)
-{
-	galv_assert_api(fabric);
-	galv_assert_api(nr);
-
-	return stroll_palloc_init(&fabric->base, nr, sizeof(struct galv_frag));
-}
+	__export_public;
 
 static inline
 void
@@ -71,7 +69,7 @@ galv_frag_fini_fabric(struct galv_frag_fabric * __restrict fabric)
 {
 	galv_frag_fabric_assert_api(fabric);
 
-	stroll_palloc_fini(&fabric->base);
+	stroll_falloc_fini(&fabric->base);
 }
 
 static inline

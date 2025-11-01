@@ -21,38 +21,25 @@
 
 #include <galv/buffer.h>
 #include <galv/priv/session.h>
-#include <galv/priv/fragment.h>
+#include <stroll/palloc.h>
 
-struct galv_conn;
-
-struct galv_sess {
-	struct galv_conn *         conn;
-	struct galv_buff_queue     recv_buffq;
-	struct galv_buff_fabric    buff_fab;
-	struct galv_frag_fabric    frag_fab;
-	struct galv_sess_msg_queue recv_msgq;
-	struct stroll_palloc       msg_fab;
-};
-
-#define galv_sess_assert_api(_sess) \
-	galv_assert_api(_sess); \
-	galv_assert_api((_sess)->conn)
+struct upoll;
 
 extern int
-galv_sess_recv(struct galv_sess * __restrict session)
+galv_sess_recv(struct galv_sess * __restrict   session,
+               uint32_t                        events,
+               const struct upoll * __restrict poller)
 	__export_public;
 
 extern int
-galv_sess_init(struct galv_sess * __restrict session,
+galv_sess_open(struct galv_sess * __restrict session,
                struct galv_conn * __restrict conn,
-               unsigned int                  buff_nr,
-               size_t                        buff_capa,
-               unsigned int                  frag_nr,
-               unsigned int                  msg_nr)
+               size_t                        max_pload_size,
+               size_t                        buff_capa)
 	__export_public;
 
 extern void
-galv_sess_fini(struct galv_sess * __restrict session)
+galv_sess_close(struct galv_sess * __restrict session)
 	__export_public;
 
 #endif /* _GALV_SESSION_H */

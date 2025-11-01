@@ -7,12 +7,32 @@
 
 #include "common.h"
 #include "galv/priv/fragment.h"
+#include <sys/user.h>
+
+#define galv_frag_fabric_assert_intern(_fabric) \
+	galv_assert_intern(_fabric); \
+	galv_assert_intern((_fabric)->nr); \
+	galv_assert_intern((_fabric)->cnt <= (_fabric)->nr)
 
 static
 struct galv_frag *
 galv_frag_fabric_alloc(struct galv_frag_fabric * __restrict fabric)
 {
-	return (struct galv_frag *)stroll_palloc_alloc(&fabric->base);
+	galv_frag_fabric_assert_intern(fabric);
+
+	if (fabric->cnt < fabric->nr) {
+		struct galv_frag * frag;
+
+		frag = (struct galv_frag *)stroll_falloc_alloc(&fabric->base);
+		if (frag)
+			fabric->cnt++;
+
+		return frag;
+	}
+
+	errno = ENOBUFS;
+
+	return NULL;
 }
 
 static
@@ -20,7 +40,27 @@ void
 galv_frag_fabric_free(struct galv_frag_fabric * __restrict fabric,
                       struct galv_frag * __restrict        fragment)
 {
-	return stroll_palloc_free(&fabric->base, fragment);
+	galv_frag_fabric_assert_intern(fabric);
+	galv_assert_intern(fragment);
+	galv_assert_api(fabric->cnt);
+
+	fabric->cnt--;
+	stroll_falloc_free(&fabric->base, fragment);
+}
+
+void
+galv_frag_init_fabric(struct galv_frag_fabric * __restrict fabric,
+                      unsigned int                         nr)
+{
+	galv_assert_api(fabric);
+	galv_assert_api(nr);
+
+	fabric->cnt = 0;
+	fabric->nr = stroll_round_upper(nr,
+	                                PAGE_SIZE / sizeof(struct galv_frag));
+	return stroll_falloc_init(&fabric->base,
+	                          PAGE_SIZE / sizeof(struct galv_frag),
+	                          sizeof(struct galv_frag));
 }
 
 size_t

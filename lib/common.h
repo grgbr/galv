@@ -28,50 +28,90 @@
 
 extern struct elog * galv_logger;
 
-#define galv_err(_format, ...) \
+#define galv_log(_severity, _format, ...) \
 	do { \
 		if (galv_logger) \
-			elog_err(galv_logger, \
+			elog_log(galv_logger, \
+			         _severity, \
 			         "galv:" _format ".", \
 			         ## __VA_ARGS__); \
 	} while (0)
 
-#define galv_warn(_format, ...) \
+#define GALV_RATELIM_BURST (5U)
+#define GALV_RATELIM_LAPSE (10U)
+
+#define galv_ratelim_log(_label, _severity, _format, ...) \
 	do { \
 		if (galv_logger) \
-			elog_warn(galv_logger, \
-			          "galv:" _format ".", \
-			          ## __VA_ARGS__); \
-	} while (0)
+			elog_ratelim_log(galv_logger, \
+			                 GALV_RATELIM_BURST, \
+			                 GALV_RATELIM_LAPSE, \
+			                 "galv:" _label, \
+			                 _severity, \
+			                 "galv:" _format, \
+			                 ## __VA_ARGS__); \
+	 } while (0)
+
+#define galv_err(_format, ...) \
+	galv_log(ELOG_ERR_SEVERITY, _format, ##__VA_ARGS__)
+
+#define galv_ratelim_err(_label, _format, ...) \
+	galv_ratelim_log(_label, \
+	                 ELOG_ERR_SEVERITY, \
+	                 _format, \
+	                 ## __VA_ARGS__)
+
+#define galv_warn(_format, ...) \
+	galv_log(ELOG_WARNING_SEVERITY, _format, ##__VA_ARGS__)
+
+#define galv_ratelim_warn(_label, _format, ...) \
+	galv_ratelim_log(_label, \
+	                 ELOG_WARNING_SEVERITY, \
+	                 _format, \
+	                 ## __VA_ARGS__)
 
 #define galv_notice(_format, ...) \
-	do { \
-		if (galv_logger) \
-			elog_notice(galv_logger, \
-			            "galv:" _format ".", \
-			            ## __VA_ARGS__); \
-	} while (0)
+	galv_log(ELOG_NOTICE_SEVERITY, _format, ##__VA_ARGS__)
+
+#define galv_ratelim_notice(_label, _format, ...) \
+	galv_ratelim_log(_label, \
+	                 ELOG_NOTICE_SEVERITY, \
+	                 _format, \
+	                 ## __VA_ARGS__)
 
 #define galv_info(_format, ...) \
-	do { \
-		if (galv_logger) \
-			elog_info(galv_logger, \
-			          "galv:" _format ".", \
-			          ## __VA_ARGS__); \
-	} while (0)
+	galv_log(ELOG_INFO_SEVERITY, _format, ##__VA_ARGS__)
+
+#define galv_ratelim_info(_label, _format, ...) \
+	galv_ratelim_log(_label, \
+	                 ELOG_INFO_SEVERITY, \
+	                 _format, \
+	                 ## __VA_ARGS__)
 
 #else /* !defined(CONFIG_GALV_LOG) */
 
 #define galv_err(_format, ...) \
 	do {} while (0)
 
+#define galv_ratelim_err(_format, ...) \
+	do {} while (0)
+
 #define galv_warn(_format, ...) \
+	do {} while (0)
+
+#define galv_ratelim_warn(_format, ...) \
 	do {} while (0)
 
 #define galv_notice(_format, ...) \
 	do {} while (0)
 
+#define galv_ratelim_notice(_format, ...) \
+	do {} while (0)
+
 #define galv_info(_format, ...) \
+	do {} while (0)
+
+#define galv_ratelim_info(_format, ...) \
 	do {} while (0)
 
 #endif /* defined(CONFIG_GALV_LOG) */
@@ -79,12 +119,7 @@ extern struct elog * galv_logger;
 #if defined(CONFIG_GALV_DEBUG)
 
 #define galv_debug(_format, ...) \
-	do { \
-		if (galv_logger) \
-			elog_debug(galv_logger, \
-			           "galv:" _format ".", \
-			           ## __VA_ARGS__); \
-	} while (0)
+	galv_log(ELOG_DEBUG_SEVERITY, _format, ##__VA_ARGS__)
 
 #else /* !defined(CONFIG_GALV_DEBUG) */
 
