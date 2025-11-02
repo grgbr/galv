@@ -21,7 +21,6 @@
 
 #include <galv/buffer.h>
 #include <galv/priv/session.h>
-#include <stroll/palloc.h>
 
 struct upoll;
 
