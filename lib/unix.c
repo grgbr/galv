@@ -74,7 +74,8 @@ galv_unix_acceptor_dispatch(struct upoll_worker * worker,
 		 * Nothing specific to do as next syscall called with our socket
 		 * fd as argument should return the error as errno...
 		 */
-		galv_notice("unix:acceptor: socket error ignored");
+		galv_ratelim_notice("unix:acceptor: socket error ignored...",
+		                    "unix:acceptor: socket error ignored");
 
 		if (!(events & EPOLLIN))
 			return 0;
@@ -102,19 +103,23 @@ galv_unix_acceptor_dispatch(struct upoll_worker * worker,
 
 		case -EMFILE: /* Too many open files by process. */
 		case -ENFILE: /* Too many open files in system. */
-			galv_warn("unix:acceptor: "
-			          "cannot process connection request: "
-			          "%s (%d)",
-			          strerror(-ret),
-			          -ret);
+			galv_ratelim_warn(
+				"unix:acceptor: "
+				"cannot process connection request...",
+				"unix:acceptor: "
+				"cannot process connection request: %s (%d)",
+				strerror(-ret),
+				-ret);
 			return ret;
 
 		default:
-			galv_notice("unix:acceptor: "
-			            "cannot process connection request: "
-			            "%s (%d)",
-			            strerror(-ret),
-			            -ret);
+			galv_ratelim_notice(
+				"unix:acceptor: "
+				"cannot process connection request...",
+				"unix:acceptor: "
+				"cannot process connection request: %s (%d)",
+				strerror(-ret),
+				-ret);
 			break;
 		}
 	}
@@ -234,9 +239,19 @@ galv_unix_acceptor_close(const struct galv_unix_acceptor * __restrict acceptor,
 	galv_assert_api((_attrs)->peer_addr.sun_family == AF_UNIX); \
 	galv_assert_api((_attrs)->peer_cred.pid > 0)
 
-#define galv_unix_conn_assert_api(_conn) \
+#define galv_unix_assert_conn_api(_conn) \
 	galv_conn_assert_iface_api(&(_conn)->base); \
 	galv_unix_assert_attrs_api(&(_conn)->attrs)
+
+#define galv_unix_assert_attrs_intern(_attrs) \
+	galv_assert_intern(_attrs); \
+	galv_assert_intern((_attrs)->peer_size >= sizeof(sa_family_t)); \
+	galv_assert_intern((_attrs)->peer_addr.sun_family == AF_UNIX); \
+	galv_assert_intern((_attrs)->peer_cred.pid > 0)
+
+#define galv_unix_assert_conn_intern(_conn) \
+	galv_conn_assert_iface_intern(&(_conn)->base); \
+	galv_unix_assert_attrs_intern(&(_conn)->attrs)
 
 void
 galv_unix_conn_setup(struct galv_unix_conn * __restrict        conn,
@@ -470,7 +485,7 @@ galv_unix_gate_ucred_track(struct galv_gate * __restrict       gate,
                            const struct galv_conn * __restrict conn)
 {
 	galv_unix_gate_assert_ucred_api((struct galv_unix_gate_ucred *)gate);
-	galv_unix_conn_assert_api((const struct galv_unix_conn *)conn);
+	galv_unix_assert_conn_api((const struct galv_unix_conn *)conn);
 
 	struct galv_unix_gate_ucred *       ucgt =
 		(struct galv_unix_gate_ucred *)gate;
@@ -514,7 +529,7 @@ galv_unix_gate_ucred_untrack(struct galv_gate * __restrict       gate,
                              const struct galv_conn * __restrict conn)
 {
 	galv_unix_gate_assert_ucred_api((struct galv_unix_gate_ucred *)gate);
-	galv_unix_conn_assert_api((const struct galv_unix_conn *)conn);
+	galv_unix_assert_conn_api((const struct galv_unix_conn *)conn);
 
 	struct galv_unix_gate_ucred * ucgt = (struct galv_unix_gate_ucred *)
 	                                     gate;
@@ -591,3 +606,202 @@ galv_unix_gate_ucred_fini(struct galv_unix_gate_ucred * __restrict gate)
 }
 
 #endif /* defined(CONFIG_GALV_GATE) */
+
+/******************************************************************************
+ * Asynchronous Unix connection oriented service
+ ******************************************************************************/
+
+#if defined(CONFIG_GALV_SVC)
+
+#include "galv/repo.h"
+#include "galv/fabric.h"
+
+#define galv_unix_assert_svc_ctx_intern(_ctx) \
+	galv_assert_intern(_ctx); \
+	galv_assert_intern((_ctx)->repo); \
+	galv_assert_intern((_ctx)->fab); \
+	galv_assert_intern((_ctx)->gate)
+
+#define galv_unix_assert_svc_api(_svc) \
+	galv_assert_api(_svc); \
+	galv_unix_assert_acceptor_api(&(_svc)->base); \
+	galv_unix_assert_svc_ctx_api( \
+		(struct galv_unix_svc_context *) \
+		galv_acceptor_context((const struct galv_acceptor *) \
+		                      &(_svc)->base)); \
+	galv_conn_assert_ops_api((_svc)->conn_ops)
+
+#define galv_unix_assert_svc_intern(_svc) \
+	galv_assert_intern(_svc); \
+	galv_unix_assert_acceptor_intern(&(_svc)->base); \
+	galv_unix_assert_svc_ctx_intern( \
+		(struct galv_unix_svc_context *) \
+		galv_acceptor_context((const struct galv_acceptor *) \
+		                      &(_svc)->base)); \
+	galv_conn_assert_ops_intern((_svc)->conn_ops)
+
+static
+int
+galv_unix_svc_on_accept(struct galv_acceptor * __restrict acceptor,
+                        uint32_t                          events __unused,
+                        const struct upoll * __restrict   poller)
+{
+	galv_unix_assert_svc_intern((struct galv_unix_svc *)acceptor);
+	galv_assert_intern(events & EPOLLIN);
+	galv_assert_intern(poller);
+
+	struct galv_unix_svc *         svc = (struct galv_unix_svc *)
+	                                     acceptor;
+	struct galv_unix_svc_context * ctx = galv_acceptor_context(acceptor);
+	struct galv_unix_attrs         attrs;
+	int                            fd;
+	struct galv_unix_conn *        conn;
+	int                            err;
+
+	fd = galv_unix_acceptor_grab(&svc->base, &attrs, SOCK_CLOEXEC);
+	if (fd < 0) {
+		err = fd;
+		goto err;
+	}
+
+	if (galv_conn_repo_full(ctx->repo)) {
+		galv_ratelim_info(
+			"unix:svc: number of connections limit reached...",
+			"unix:svc: number of connections limit reached "
+			"[pid:%d, uid:%d]: ",
+			attrs.peer_cred.pid,
+			attrs.peer_cred.uid);
+		err = -EPERM;
+		goto close;
+	}
+
+	conn = galv_fabric_alloc(ctx->fab);
+	if (!conn) {
+		err = -errno;
+		goto close;
+	}
+
+	galv_unix_conn_setup(conn, fd, &svc->base, svc->conn_ops, &attrs);
+
+	err = galv_gate_track(ctx->gate, &conn->base);
+	if (err) {
+		galv_ratelim_info(
+			"unix:svc: connection request denied...",
+			"unix:svc: connection request denied "
+			"[pid:%d, uid:%d]: ",
+			attrs.peer_cred.pid,
+			attrs.peer_cred.uid);
+		goto free;
+	}
+
+	err = galv_conn_on_connecting(&conn->base, 0, poller);
+	if (err)
+		goto untrack;
+
+	galv_conn_repo_register(ctx->repo, &conn->base);
+
+	galv_info("unix:svc: connection request completed [pid:%d, uid:%d]",
+	           attrs.peer_cred.pid,
+	           attrs.peer_cred.uid);
+
+	return 0;
+
+untrack:
+	galv_gate_untrack(ctx->gate, &conn->base);
+free:
+	free(conn);
+close:
+	etux_sock_close(fd);
+err:
+	if (err != -ENOMEM)
+		galv_ratelim_info(
+			"unix:svc: cannot complete connection request...",
+			"unix:svc: cannot complete connection request: %s (%d)",
+			strerror(-err),
+			-err);
+
+	return err;
+}
+
+static
+int
+galv_unix_svc_on_close(struct galv_acceptor * __restrict acceptor,
+                       struct galv_conn * __restrict     conn,
+                       const struct upoll * __restrict   poller)
+{
+	galv_unix_assert_svc_intern((struct galv_unix_svc *)acceptor);
+	galv_unix_assert_conn_intern((struct galv_unix_conn *)conn);
+	galv_assert_intern(poller);
+
+	struct galv_unix_svc_context * ctx = galv_acceptor_context(acceptor);
+	int                            ret;
+
+	galv_conn_repo_unregister(ctx->repo, conn);
+	galv_gate_untrack(ctx->gate, conn);
+	ret = galv_conn_complete_close(conn);
+	galv_fabric_free(ctx->fab, conn);
+
+	if (!ret || (ret == -EINTR))
+		return ret;
+
+	galv_ratelim_warn(
+		"unix:svc: cannot close connection...",
+		"unix:svc: cannot close connection: %s (%d)",
+		strerror(-ret),
+		-ret);
+
+	return 0;
+}
+
+static const struct galv_acceptor_ops galv_unix_svc_ops = {
+	.on_accept_conn = galv_unix_svc_on_accept,
+	.on_close_conn  = galv_unix_svc_on_close
+};
+
+int
+galv_unix_svc_open(struct galv_unix_svc * __restrict         service,
+                   const char * __restrict                   path,
+                   int                                       type,
+                   int                                       flags,
+                   int                                       backlog,
+                   const struct upoll * __restrict           poller,
+                   const struct galv_conn_ops * __restrict   ops,
+                   struct galv_unix_svc_context * __restrict context)
+{
+	galv_assert_api(service);
+	galv_assert_api(!unsk_is_named_path_ok(path));
+	galv_assert_api((type == SOCK_STREAM) || (type == SOCK_SEQPACKET));
+	galv_assert_api(!flags || (flags == SOCK_CLOEXEC));
+	galv_assert_api(backlog >= 0);
+	galv_assert_api(poller);
+	galv_conn_assert_ops_api(ops);
+	galv_unix_assert_svc_ctx_api(context);
+
+	int err;
+
+	err = galv_unix_acceptor_open(&service->base,
+	                              path,
+	                              type,
+	                              flags,
+	                              backlog,
+	                              poller,
+	                              &galv_unix_svc_ops,
+	                              context);
+	if (err)
+		return err;
+
+	service->conn_ops = ops;
+
+	return 0;
+}
+
+int
+galv_unix_svc_close(const struct galv_unix_svc * __restrict service,
+                    const struct upoll * __restrict         poller)
+{
+	galv_unix_assert_svc_api(service);
+
+	return galv_unix_acceptor_close(&service->base, poller);
+}
+
+#endif /* defined(CONFIG_GALV_SVC) */

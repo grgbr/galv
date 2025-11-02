@@ -125,4 +125,48 @@ galv_unix_gate_ucred_fini(struct galv_unix_gate_ucred * __restrict gate)
 
 #endif /* defined(CONFIG_GALV_GATE) */
 
+/******************************************************************************
+ * Asynchronous Unix connection oriented service
+ ******************************************************************************/
+
+#if defined(CONFIG_GALV_SVC)
+
+struct galv_conn_repo;
+struct galv_fabric;
+
+struct galv_unix_svc_context {
+	struct galv_conn_repo * repo;
+	struct galv_fabric *    fab;
+	struct galv_gate *      gate;
+};
+
+#define galv_unix_assert_svc_ctx_api(_ctx) \
+	galv_assert_api(_ctx); \
+	galv_assert_api((_ctx)->repo); \
+	galv_assert_api((_ctx)->fab); \
+	galv_assert_api((_ctx)->gate)
+
+struct galv_unix_svc {
+	struct galv_unix_acceptor    base;
+	const struct galv_conn_ops * conn_ops;
+};
+
+extern int
+galv_unix_svc_open(struct galv_unix_svc * __restrict         service,
+                   const char * __restrict                   path,
+                   int                                       type,
+                   int                                       flags,
+                   int                                       backlog,
+                   const struct upoll * __restrict           poller,
+                   const struct galv_conn_ops * __restrict   ops,
+                   struct galv_unix_svc_context * __restrict context)
+	__export_public;
+
+extern int
+galv_unix_svc_close(const struct galv_unix_svc * __restrict service,
+                    const struct upoll * __restrict         poller)
+	__export_public;
+
+#endif /* defined(CONFIG_GALV_SVC) */
+
 #endif /* _GALV_UNIX_H */

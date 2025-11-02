@@ -78,6 +78,17 @@ config GALV_UNIX_CONN_GATE_HASH_BITS
 	  Logarithm base 2 of maximum number of buckets of Unix socket based
 	  connection filtering hash table.
 
+config GALV_SVC
+	bool "Connection oriented service"
+	default n
+	depends on GALV_UNIX_CONN
+	select GALV_GATE
+	select GALV_FABRIC
+	select GALV_REPO
+	help
+	  Build Galv library with support for high-level service objects
+	  allowing to implement full-featured services easily.
+
 config GALV_BUFF
 	bool "Core network buffer"
 	default n
