@@ -765,19 +765,12 @@ galv_sess_recv_buffs(struct galv_sess * __restrict session)
 	if (!galv_buff_queue_empty(&session->recv_buffq)) {
 		ret = galv_sess_recv_tail_buff(session);
 		if (ret)
-			goto out;
+			return ret;
 	}
 
 	do {
 		ret = galv_sess_recv_new_buff(session);
 	} while (!ret);
-
-out:
-	if (ret == -EAGAIN) {
-		/* Underlying socket incoming buffer empty, try again later */
-		galv_conn_watch(session->conn, EPOLLIN);
-		return 0;
-	}
 
 	galv_assert_intern(ret < 0);
 
@@ -957,19 +950,12 @@ galv_sess_recv_msgs(struct galv_sess * __restrict session)
 	if (!galv_sess_msg_queue_empty(&session->recv_msgq)) {
 		ret = galv_sess_recv_tail_msg(session);
 		if (ret)
-			goto out;
+			return ret;
 	}
 
 	do {
 		ret = galv_sess_recv_new_msg(session);
 	} while (!ret);
-
-out:
-	if (ret == -EAGAIN) {
-		/* No more data to fill in additional messages. */
-		galv_conn_watch(session->conn, EPOLLIN);
-		return 0;
-	}
 
 	galv_assert_intern(ret < 0);
 
@@ -985,19 +971,34 @@ galv_sess_recv(struct galv_sess * __restrict   session,
 
 	ret = galv_sess_recv_buffs(session);
 	switch (ret) {
-	case 0:
+	case -EAGAIN:
+		/* Underlying socket incoming buffer empty, try again later */
+		galv_conn_watch(session->conn, EPOLLIN);
+		ret = 0;
 		break;
 
-	case -ENOBUFS:      /* No more receive buffer available. */
-#warning Make sure client is given a change to release messages / fragments / buffers
-#warning Do we need to galv_conn_watch() galv_conn_unwatch() EPOLLIN or flush output queues ?
+	case -ENOBUFS:
+		/*
+		 * No more receive buffer available.
+		 *
+		 * FIXME: ??
+		 * We might call galv_conn_unwatch(session->conn, EPOLLIN) here
+		 * and make sure to call galv_conn_watch(session->conn, EPOLLIN)
+		 * when receive buffers are available again at
+		 * galv_buff_fabric_free() calling time.
+		 * In addition we might give the client a chance to release
+		 * messages / fragments / buffers thanks to a callback function.
+		 */
 		break;
 
-	case -ECONNREFUSED: /* Remote peer closed its connection */
+	case -ECONNREFUSED:
+		/* Remote peer closed its connection */
 		return galv_conn_on_recv_closed(session->conn, events, poller);
 
-	case -EINTR:        /* Interrupted by a signal before any data was received */
-	case -ENOMEM:       /* No more memory available */
+	case -EINTR:
+		/* Interrupted by a signal before any data was received */
+	case -ENOMEM:
+		/* No more memory available */
 		return ret;
 
 	default:
@@ -1006,21 +1007,40 @@ galv_sess_recv(struct galv_sess * __restrict   session,
 	}
 
 	if (galv_buff_queue_empty(&session->recv_buffq))
+		/* No more receive buffers to process. */
 		return ret;
 
 	ret = galv_sess_recv_msgs(session);
 	switch (ret) {
-	case 0:
+	case -EAGAIN:
+		/* No more data to fill in additional messages. */
+		galv_conn_watch(session->conn, EPOLLIN);
+		ret = 0;
 		break;
 
 	case -ENOBUFS:
-#warning Do we need to galv_conn_watch() galv_conn_unwatch() EPOLLIN or flush output queues ?
+		/*
+		 * No more free fragments / messages available to process
+		 * messages.
+		 *
+		 * FIXME: ??
+		 * We might call galv_conn_unwatch(session->conn, EPOLLIN) here
+		 * and make sure to call galv_conn_watch(session->conn, EPOLLIN)
+		 * when fragments / messages are available again at
+		 * galv_frag_destroy() / galv_sess_destroy_msg() calling time.
+		 * In addition we might give the client a chance to release
+		 * messages / fragments thanks to a callback function.
+		 */
 		break;
 
 	case -EPROTO:
+		/* Unexpected segment / message header received. */
 	case -ENODATA:
-#warning log a message
-		break;
+		/*
+		 * Invalid empty segment / message header received.
+		 * Close receive end and hopefully flush output messages.
+		 */
+		return galv_conn_on_recv_closed(session->conn, events, poller);
 
 	case -ENOMEM:
 		break;
