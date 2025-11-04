@@ -97,6 +97,7 @@ config GALV_BUFF
 
 config GALV_FRAG
 	bool
+	select GALV_BUFF
 	default n
 	help
 	  Build Galv library with network fragment support.
@@ -107,3 +108,19 @@ config GALV_SESS
 	default n
 	help
 	  Build Galv library with session protocol support.
+
+config GALV_SMPL
+	bool "Sample code"
+	default n
+	help
+	  Build Galv library with usage sample code.
+
+config GALV_SMPL_SESS
+	bool "Session sample code"
+	depends on GALV_SMPL
+	select GALV_UNIX_CONN
+	select GALV_SVC
+	select GALV_SESS
+	default n
+	help
+	  Build Galv library with session service usage sample code.

@@ -22,23 +22,6 @@
 #include <galv/buffer.h>
 #include <galv/priv/session.h>
 
-struct upoll;
-
-extern int
-galv_sess_recv(struct galv_sess * __restrict   session,
-               uint32_t                        events,
-               const struct upoll * __restrict poller)
-	__export_public;
-
-extern int
-galv_sess_open(struct galv_sess * __restrict session,
-               struct galv_conn * __restrict conn,
-               size_t                        max_pload_size,
-               size_t                        buff_capa)
-	__export_public;
-
-extern void
-galv_sess_close(struct galv_sess * __restrict session)
-	__export_public;
+extern const struct galv_conn_ops galv_sess_ops __export_public;
 
 #endif /* _GALV_SESSION_H */

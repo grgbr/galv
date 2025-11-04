@@ -11,7 +11,7 @@
 #include <stroll/dlist.h>
 
 struct galv_conn;
-struct galv_acceptor;
+struct galv_service;
 
 typedef int galv_conn_handle_fn(struct galv_conn * __restrict,
 		                uint32_t,
@@ -55,7 +55,8 @@ struct galv_conn {
 	enum galv_conn_state         state;
 	int                          fd;
 	struct upoll_worker          work;
-	struct galv_acceptor *       accept;
+	void *                       ctx;
+	struct galv_service *        svc;
 	struct stroll_dlist_node     repo;
 };
 
@@ -80,13 +81,23 @@ galv_conn_from_worker(const struct upoll_worker * __restrict worker)
 }
 
 static inline
-struct galv_acceptor *
-galv_conn_acceptor(const struct galv_conn * __restrict conn)
+struct galv_service *
+galv_conn_service(const struct galv_conn * __restrict conn)
 {
 	galv_conn_assert_iface_api(conn);
 	galv_assert_api(conn->state != GALV_CONN_CLOSED_STATE);
 
-	return conn->accept;
+	return conn->svc;
+}
+
+static inline
+void *
+galv_conn_context(const struct galv_conn * __restrict conn)
+{
+	galv_conn_assert_iface_api(conn);
+	galv_assert_api(conn->state != GALV_CONN_CLOSED_STATE);
+
+	return conn->ctx;
 }
 
 static inline
@@ -385,7 +396,8 @@ int
 galv_conn_poll(struct galv_conn * __restrict   conn,
                upoll_dispatch_fn *             dispatch,
                const struct upoll * __restrict poller,
-               uint32_t                        events)
+               uint32_t                        events,
+               void * __restrict               context)
 {
 	galv_conn_assert_iface_api(conn);
 	galv_assert_api(conn->fd >= 0);
@@ -396,6 +408,7 @@ galv_conn_poll(struct galv_conn * __restrict   conn,
 	galv_assert_api(!(events & ~GALV_CONN_POLL_VALID_EVENTS));
 
 	conn->work.dispatch = dispatch;
+	conn->ctx = context;
 	return upoll_register(poller, conn->fd, events, &conn->work);
 }
 

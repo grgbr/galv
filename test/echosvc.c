@@ -116,7 +116,7 @@ galvut_echosvc_on_connecting(struct galv_conn * __restrict   conn,
 {
 	int err;
 
-	err = galv_conn_poll(conn, galv_conn_dispatch, poller, EPOLLIN);
+	err = galv_conn_poll(conn, galv_conn_dispatch, poller, EPOLLIN, NULL);
 	if (!err) {
 		struct galv_acceptor *        accept;
 		struct galvut_echosvc_context * ctx;

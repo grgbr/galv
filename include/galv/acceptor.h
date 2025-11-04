@@ -1,10 +1,14 @@
 /******************************************************************************
- * Asynchronous connection acceptor handling
+ * SPDX-License-Identifier: LGPL-3.0-only
+ *
+ * This file is part of Galv.
+ * Copyright (C) 2017-2025 Grégor Boirie <gregor.boirie@free.fr>
  ******************************************************************************/
 
 #ifndef _GALV_ACCEPTOR_H
 #define _GALV_ACCEPTOR_H
 
+#if 0
 #include <galv/cdefs.h>
 #include <utils/poll.h>
 
@@ -62,5 +66,6 @@ galv_acceptor_context(const struct galv_acceptor * __restrict acceptor)
 extern int
 galv_acceptor_close(const struct galv_acceptor * __restrict acceptor,
                     const struct upoll * __restrict         poller);
+#endif
 
 #endif /* _GALV_ACCEPTOR_H */

@@ -37,6 +37,17 @@ extern struct elog * galv_logger;
 			         ## __VA_ARGS__); \
 	} while (0)
 
+#define galv_plog(_severity, _code, _format, ...) \
+	do { \
+		if (galv_logger) \
+			elog_log(galv_logger, \
+			         _severity, \
+			         "galv:" _format ": %s (%d).", \
+			         ## __VA_ARGS__, \
+			         strerror(-(_code)), \
+			         -(_code)); \
+	} while (0)
+
 #define GALV_RATELIM_BURST (5U)
 #define GALV_RATELIM_LAPSE (10U)
 
@@ -46,51 +57,97 @@ extern struct elog * galv_logger;
 			elog_ratelim_log(galv_logger, \
 			                 GALV_RATELIM_BURST, \
 			                 GALV_RATELIM_LAPSE, \
-			                 "galv:" _label, \
+			                 "galv:" _label "...", \
 			                 _severity, \
-			                 "galv:" _format, \
+			                 "galv:" _label _format ".", \
 			                 ## __VA_ARGS__); \
+	 } while (0)
+
+#define galv_ratelim_plog(_label, _severity, _code, _format, ...) \
+	do { \
+		if (galv_logger) \
+			elog_ratelim_log( \
+				galv_logger, \
+				GALV_RATELIM_BURST, \
+				GALV_RATELIM_LAPSE, \
+				"galv:" _label "...", \
+				_severity, \
+				"galv:" _label _format ": %s (%d).", \
+				## __VA_ARGS__, \
+				strerror(_code), \
+				_code); \
 	 } while (0)
 
 #define galv_err(_format, ...) \
 	galv_log(ELOG_ERR_SEVERITY, _format, ##__VA_ARGS__)
 
+#define galv_perr(_code, _format, ...) \
+	galv_plog(ELOG_ERR_SEVERITY, _code, _format, ##__VA_ARGS__)
+
 #define galv_ratelim_err(_label, _format, ...) \
-	galv_ratelim_log(_label, \
-	                 ELOG_ERR_SEVERITY, \
-	                 _format, \
-	                 ## __VA_ARGS__)
+	galv_ratelim_log(_label, ELOG_ERR_SEVERITY, _format, ## __VA_ARGS__)
+
+#define galv_ratelim_perr(_code, _label, _format, ...) \
+	galv_ratelim_plog(_label, \
+	                  ELOG_ERR_SEVERITY, \
+	                  _code, \
+	                  _format, \
+	                  ## __VA_ARGS__)
 
 #define galv_warn(_format, ...) \
 	galv_log(ELOG_WARNING_SEVERITY, _format, ##__VA_ARGS__)
 
+#define galv_pwarn(_code, _format, ...) \
+	galv_plog(ELOG_WARNING_SEVERITY, _code, _format, ##__VA_ARGS__)
+
 #define galv_ratelim_warn(_label, _format, ...) \
-	galv_ratelim_log(_label, \
-	                 ELOG_WARNING_SEVERITY, \
-	                 _format, \
-	                 ## __VA_ARGS__)
+	galv_ratelim_log(_label, ELOG_WARNING_SEVERITY, _format, ## __VA_ARGS__)
+
+#define galv_ratelim_pwarn(_code, _label, _format, ...) \
+	galv_ratelim_plog(_label, \
+	                  ELOG_WARNING_SEVERITY, \
+	                  _code, \
+	                  _format, \
+	                  ## __VA_ARGS__)
 
 #define galv_notice(_format, ...) \
 	galv_log(ELOG_NOTICE_SEVERITY, _format, ##__VA_ARGS__)
 
+#define galv_pnotice(_code, _format, ...) \
+	galv_plog(ELOG_NOTICE_SEVERITY, _code, _format, ##__VA_ARGS__)
+
 #define galv_ratelim_notice(_label, _format, ...) \
-	galv_ratelim_log(_label, \
-	                 ELOG_NOTICE_SEVERITY, \
-	                 _format, \
-	                 ## __VA_ARGS__)
+	galv_ratelim_log(_label, ELOG_NOTICE_SEVERITY, _format, ## __VA_ARGS__)
+
+#define galv_ratelim_pnotice(_code, _label, _format, ...) \
+	galv_ratelim_plog(_label, \
+	                  ELOG_NOTICE_SEVERITY, \
+	                  _code, \
+	                  _format, \
+	                  ## __VA_ARGS__)
 
 #define galv_info(_format, ...) \
 	galv_log(ELOG_INFO_SEVERITY, _format, ##__VA_ARGS__)
 
+#define galv_pinfo(_code, _format, ...) \
+	galv_plog(ELOG_INFO_SEVERITY, _code, _format, ##__VA_ARGS__)
+
 #define galv_ratelim_info(_label, _format, ...) \
-	galv_ratelim_log(_label, \
-	                 ELOG_INFO_SEVERITY, \
-	                 _format, \
-	                 ## __VA_ARGS__)
+	galv_ratelim_log(_label, ELOG_INFO_SEVERITY, _format, ## __VA_ARGS__)
+
+#define galv_ratelim_pinfo(_code, _label, _format, ...) \
+	galv_ratelim_plog(_label, \
+	                  ELOG_INFO_SEVERITY, \
+	                  _code, \
+	                  _format, \
+	                  ## __VA_ARGS__)
 
 #else /* !defined(CONFIG_GALV_LOG) */
 
 #define galv_err(_format, ...) \
+	do {} while (0)
+
+#define galv_perr(_code, _format, ...) \
 	do {} while (0)
 
 #define galv_ratelim_err(_format, ...) \
@@ -99,16 +156,25 @@ extern struct elog * galv_logger;
 #define galv_warn(_format, ...) \
 	do {} while (0)
 
+#define galv_pwarn(_code, _format, ...) \
+	do {} while (0)
+
 #define galv_ratelim_warn(_format, ...) \
 	do {} while (0)
 
 #define galv_notice(_format, ...) \
 	do {} while (0)
 
+#define galv_pnotice(_code, _format, ...) \
+	do {} while (0)
+
 #define galv_ratelim_notice(_format, ...) \
 	do {} while (0)
 
 #define galv_info(_format, ...) \
+	do {} while (0)
+
+#define galv_pinfo(_code, _format, ...) \
 	do {} while (0)
 
 #define galv_ratelim_info(_format, ...) \
@@ -121,9 +187,15 @@ extern struct elog * galv_logger;
 #define galv_debug(_format, ...) \
 	galv_log(ELOG_DEBUG_SEVERITY, _format, ##__VA_ARGS__)
 
+#define galv_pdebug(_code, _format, ...) \
+	galv_plog(ELOG_DEBUG_SEVERITY, _code, _format, ##__VA_ARGS__)
+
 #else /* !defined(CONFIG_GALV_DEBUG) */
 
 #define galv_debug(_format, ...) \
+	do {} while (0)
+
+#define galv_pdebug(_code, _format, ...) \
 	do {} while (0)
 
 #endif /* defined(CONFIG_GALV_DEBUG) */

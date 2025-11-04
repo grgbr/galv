@@ -1,6 +1,7 @@
 #include "acceptor.h"
-#include <utils/sock.h>
+#include "conn.h"
 
+#if 0
 int
 galv_acceptor_turn_on(struct galv_acceptor * __restrict           acceptor,
                       int                                         fd,
@@ -42,3 +43,4 @@ galv_acceptor_close(const struct galv_acceptor * __restrict acceptor,
 
 	return etux_sock_close(acceptor->fd);
 }
+#endif

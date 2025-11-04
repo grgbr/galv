@@ -5,6 +5,386 @@
  * Copyright (C) 2017-2025 Grégor Boirie <gregor.boirie@free.fr>
  ******************************************************************************/
 
+#include "unix.h"
+#include <utils/unsk.h>
+
+/******************************************************************************
+ * Unix connection acceptor handling
+ ******************************************************************************/
+
+static
+int
+galv_unix_accept(int                                 fd,
+                 struct galv_unix_endpt * __restrict peer,
+                 int                                 flags)
+{
+	galv_assert_intern(fd >= 0);
+	galv_assert_intern(peer);
+	galv_assert_intern(!(flags & ~(SOCK_NONBLOCK | SOCK_CLOEXEC)));
+
+	int       fd;
+	socklen_t sz = sizeof(peer->cred);
+
+	peer->addr.size = sizeof(peer->addr.data);
+	fd = unsk_accept(fd, &peer->addr.data, &peer->addr.size, flags);
+	if (fd < 0)
+		return fd;
+
+	unsk_getsockopt(fd, SO_PEERCRED, &peer->cred, &sz);
+	galv_assert_intern(sz == sizeof(peer->cred));
+
+	return fd;
+}
+
+static
+struct galv_conn *
+galv_unix_create_conn(int                                     fd,
+                      int                                     flags,
+                      struct galv_fabric * __restrict         fabric,
+                      const struct galv_conn_ops * __restrict ops,
+                      struct galv_service * __restrict        service)
+{
+	galv_assert_intern(fd >= 0);
+	galv_assert_intern(!(flags & ~(SOCK_NONBLOCK | SOCK_CLOEXEC)));
+	galv_fabric_assert_intern(fabric);
+	galv_conn_assert_ops_intern(ops);
+	galv_service_assert_intern(service);
+
+	struct galv_unix_conn * unc;
+	int                     fd;
+	int                     ret;
+	const char *            msg __unused;
+
+	unc = galv_fabric_alloc(fabric);
+	if (!unc) {
+		if (errno == ENOMEM)
+			return NULL;
+
+		ret = -errno;
+		msg = "allocation failed";
+		goto err;
+	}
+
+	ret = galv_unix_accept(fd, &unc->peer, flags);
+	if (ret) {
+		msg = "failed to accept";
+		goto free;
+	}
+
+	galv_conn_setup(&unc->base, ret, service, ops);
+
+	galv_debug("unix: connection created [pid:%d, uid:%d]",
+	           unc->peer.cred.pid,
+	           unc->peer.cred.uid);
+
+	return unc;
+
+free:
+	galv_fabric_free(fabric, unc);
+err:
+	galv_ratelim_pnotice(-ret,
+	                     "unix: cannot create connection",
+	                     ": %s",
+	                     msg);
+	errno = -ret;
+
+	return NULL;
+}
+
+static
+struct galv_conn *
+galv_unix_acceptor_create_conn(struct galv_acceptor * __restrict       acceptor,
+                               int                                     flags,
+                               struct galv_fabric * __restrict         fabric,
+                               const struct galv_conn_ops * __restrict ops,
+                               struct galv_service * __restrict        service)
+{
+	galv_unix_assert_acceptor_intern((struct galv_unix_acceptor *)acceptor);
+	galv_assert_intern(!(flags & ~(SOCK_NONBLOCK | SOCK_CLOEXEC)));
+	galv_fabric_assert_intern(fabric);
+	galv_conn_assert_ops_intern(ops);
+	galv_service_assert_intern(service);
+
+	return galv_unix_create_conn(acceptor->fd, flags, fabric, ops, service);
+}
+
+static
+int
+galv_unix_destroy_conn(struct galv_unix_conn * __restrict conn,
+                       struct galv_fabric * __restrict    fabric)
+{
+	galv_unix_assert_conn_intern(conn);
+	galv_fabric_assert_intern(fabric);
+
+	int            ret;
+	struct ucred * cred __unused = &conn->peer.cred;
+
+	ret = galv_conn_destroy(conn, fabric);
+	if (!ret || (ret == -EINTR)) {
+		galv_debug("unix: connection destroyed [pid:%d, uid:%d]",
+		           cred->pid,
+		           cred->uid);
+		return ret;
+	}
+
+	galv_ratelim_pnotice(-ret, "unix: cannot destroy connection", "");
+
+	return 0;
+}
+
+static
+int
+galv_unix_acceptor_destroy_conn(struct galv_acceptor * __restrict acceptor,
+                                struct galv_conn * __restrict     conn,
+                                struct galv_fabric * __restrict   fabric)
+{
+	galv_unix_assert_acceptor_intern((struct galv_unix_acceptor *)acceptor);
+	galv_conn_assert_intern(conn);
+	galv_fabric_assert_intern(fabric);
+
+	return galv_unix_destroy_conn((struct galv_unix_conn *)conn, fabric);
+}
+
+static const struct galv_acceptor_ops galv_unix_acceptor_ops = {
+	.create_conn  = galv_unix_acceptor_create_conn,
+	.destroy_conn = galv_unix_acceptor_destroy_conn
+};
+
+int
+galv_unix_acceptor_open(struct galv_unix_acceptor * __restrict acceptor,
+                        const char * __restrict                path,
+                        int                                    type,
+                        int                                    flags)
+{
+	galv_assert_api(acceptor);
+	galv_assert_api(!unsk_is_named_path_ok(path));
+	galv_assert_api((type == SOCK_STREAM) || (type == SOCK_SEQPACKET));
+
+	int          fd;
+	int          ret;
+	const char * msg __unused;
+
+	fd = unsk_open(type, flags);
+	if (fd < 0) {
+		ret = fd;
+		msg = "failed to create socket";
+		goto err;
+	}
+
+	/*
+	 * Remove local filesystem pathname if existing.
+	 *
+	 * This is required since binding a named UNIX socket to a filesystem
+	 * entry that already exists will fail with EADDRINUSE error code
+	 * (AF_UNIX sockets do not support the SO_REUSEADDR socket option).
+	 */
+	ret = unsk_unlink(path);
+	if (ret) {
+		msg = "failed to unlink pathname";
+		goto close;
+	}
+
+	/* Build local bind address. */
+	acceptor->bind_addr.size =
+		(socklen_t)offsetof(typeof(acceptor->bind_addr.data),
+		                    sun_path) +
+		(socklen_t)unsk_make_named_addr(&acceptor->bind_addr.data,
+		                                path);
+
+	/*
+	 * Bind to the given local filesystem pathname.
+	 *
+	 * This will effectively create the filesystem entry according to
+	 * current process priviledges.
+	 * See "Pathname socket ownership and permissions" section of unix(7)
+	 * man page.
+	 */
+	ret = unsk_bind(fd,
+	                &acceptor->bind_addr.data,
+	                acceptor->bind_addr.size);
+	if (ret) {
+		msg = "failed to bind to local pathname";
+		goto close;
+	}
+
+	galv_acceptor_setup(&acceptor->base, fd, &galv_unix_acceptor_ops);
+
+	galv_debug("unix: acceptor opened");
+
+	return 0;
+
+close:
+	unsk_close(fd);
+err:
+	galv_perr(-ret, "unix: cannot open acceptor: %s", msg);
+
+	return ret;
+}
+
+int
+galv_unix_acceptor_close(const struct galv_unix_acceptor * __restrict acceptor)
+{
+	galv_unix_assert_acceptor_api(acceptor);
+
+	int ret;
+
+	unlink(acceptor->bind_addr.data.sun_path);
+
+	ret = galv_acceptor_close(&acceptor->base);
+	if (ret && (ret != -EINTR))
+		galv_pnotice(-ret, "unix: cannot close acceptor");
+
+	return ret;
+}
+
+/******************************************************************************
+ * Asynchronous Unix connection service handling
+ ******************************************************************************/
+
+static
+int
+galv_unix_service_dispatch(struct upoll_worker * worker,
+                           uint32_t              events,
+                           const struct upoll *  poller)
+{
+	galv_assert_intern(worker);
+	galv_assert_intern(events);
+	galv_assert_intern(!(events & ~((uint32_t)(EPOLLIN | EPOLLERR))));
+	galv_assert_intern(poller);
+
+	struct galv_unix_service * uns;
+
+	uns = containerof(worker, struct galv_unix_service, base.work);
+	galv_unix_assert_service_intern(uns);
+
+	if (events & EPOLLERR) {
+		/*
+		 * Nothing specific to do as next syscall called with our socket
+		 * fd as argument should return the error as errno...
+		 */
+		galv_ratelim_notice("unix: socket error ignored", "");
+
+		if (!(events & EPOLLIN))
+			return 0;
+	}
+
+	/* events & EPOLLIN is true. */
+	while (true) {
+		int ret;
+
+		ret = galv_service_on_accept_conn(&uns->base, events, poller);
+		switch (ret) {
+		case 0:
+			break;
+
+		case -EAGAIN: /* All queued connection requests processed. */
+			upoll_enable_watch(&uns->base.work, EPOLLIN);
+			upoll_apply(poller, uns->base.fd, &uns->base.work);
+			return 0;
+
+		case -EINTR:  /* Interrupted by a signal */
+		case -ENOMEM: /* No more memory available. */
+			return ret;
+
+		case -EMFILE: /* Too many open files by process. */
+		case -ENFILE: /* Too many open files in system. */
+			galv_ratelim_pwarn(
+				-ret,
+				"unix: failed to process connection request",
+				"");
+			return ret;
+
+		default:
+			galv_ratelim_pnotice(
+				-ret,
+				"unix: failed to process connection request",
+				"");
+			break;
+		}
+	}
+
+	unreachable();
+}
+
+int
+galv_unix_service_on_accept_conn(
+	struct galv_service * __restrict        service,
+	int                                     flags,
+	const struct galv_conn_ops * __restrict ops,
+	uint32_t                                events __unused,
+	const struct upoll * __restrict         poller)
+{
+	galv_unix_assert_service_api((struct galv_unix_service *)service);
+	galv_assert_api(!(flags & ~(SOCK_NONBLOCK | SOCK_CLOEXEC)));
+	galv_conn_assert_ops_api(ops);
+	galv_assert_api(events & EPOLLIN);
+	galv_assert_api(poller);
+
+	struct galv_unix_service *    uns = (struct galv_unix_service *)service;
+	struct galv_service_context * ctx = galv_service_context(service);
+	struct galv_unix_conn *       unc;
+	int                           err;
+
+	if (galv_conn_repo_full(ctx->repo)) {
+		galv_ratelim_info("unix: connection request denied",
+		                  ": maximum number of connections reached");
+		err = -EPERM;
+		goto err;
+	}
+
+	unc = galv_unix_create_conn(uns->fd,
+	                            O_NONBLOCK | flags,
+	                            ctx->fabric,
+	                            ops,
+	                            uns);
+	if (!unc) {
+		err = -errno;
+		goto err;
+	}
+
+	err = galv_gate_track(ctx->gate, &unc->base);
+	if (err)
+		goto destroy;
+
+	err = galv_conn_on_connecting(&unc->base, 0, poller);
+	if (err)
+		goto untrack;
+
+	galv_conn_repo_register(ctx->repo, &unc->base);
+
+	galv_info("unix: connection request completed [pid:%d, uid:%d]",
+	          unc->peer.cred.pid,
+	          unc->peer.cred.uid);
+
+	return 0;
+
+untrack:
+	galv_gate_untrack(ctx->gate, &unc->base);
+destroy:
+	galv_unix_destroy_conn(unc, ctx->fabric);
+err:
+	return err;
+}
+
+int
+galv_unix_service_on_accept_close(struct galv_service * __restrict service,
+                                  struct galv_conn * __restrict    conn,
+                                  const struct upoll * __restrict  poller)
+{
+	galv_unix_assert_service_api((struct galv_unix_service *)service);
+	galv_conn_assert_ops_api(ops);
+	galv_assert_api(poller);
+
+	struct galv_service_context * ctx = galv_service_context(service);
+
+	galv_conn_repo_unregister(ctx->repo, conn);
+	galv_gate_untrack(ctx->gate, conn);
+
+	return galv_unix_destroy_conn((struct galv_unix_conn *)conn,
+	                              ctx->fabric);
+}
+
+#if 0
 #include "galv/unix.h"
 #include "conn.h"
 #include "acceptor.h"
@@ -805,3 +1185,5 @@ galv_unix_svc_close(const struct galv_unix_svc * __restrict service,
 }
 
 #endif /* defined(CONFIG_GALV_SVC) */
+
+#endif

@@ -962,6 +962,7 @@ galv_sess_recv_msgs(struct galv_sess * __restrict session)
 	return ret;
 }
 
+static
 int
 galv_sess_recv(struct galv_sess * __restrict   session,
                uint32_t                        events,
@@ -1103,6 +1104,7 @@ galv_sess_calc_buff_nr(size_t pload_size, size_t buff_capa)
 	return (unsigned int)(sz / (buff_capa - sizeof(struct galv_sess_head)));
 }
 
+static
 int
 galv_sess_open(struct galv_sess * __restrict session,
                struct galv_conn * __restrict conn,
@@ -1166,6 +1168,7 @@ fini_buff_fab:
 	return err;
 }
 
+static
 void
 galv_sess_close(struct galv_sess * __restrict session)
 {
@@ -1186,3 +1189,103 @@ galv_sess_close(struct galv_sess * __restrict session)
 
 	galv_debug("session: closed");
 }
+
+/******************************************************************************/
+/******************************************************************************/
+/******************************************************************************/
+/******************************************************************************/
+
+#if 0
+static
+int
+galv_sess_on_may_xfer(struct galv_conn * __restrict   conn,
+                      uint32_t                        events,
+                      const struct upoll * __restrict poller)
+{
+	struct galv_sess * sess = galv_conn_context(conn);
+
+	galv_sess_recv(sess, events, poller);
+
+	galv_debug("session: %s: implement me", __func__);
+	return -ENOSYS;
+}
+
+static
+int
+galv_sess_on_connecting(struct galv_conn * __restrict   conn,
+                        uint32_t                        events __unused,
+                        const struct upoll * __restrict poller)
+{
+	struct galv_sess * sess;
+	int                err;
+
+	sess = malloc(sizeof(*sess));
+	if (!sess)
+		return -errno;
+
+	//err = galv_sess_open(sess, conn, max_pload_size, buff_capa);
+	err = galv_sess_open(sess, conn, 5, 4096);
+	if (err)
+		goto free;
+
+	err = galv_conn_poll(sess->conn,
+	                     galv_conn_dispatch,
+	                     poller,
+	                     EPOLLIN,
+	                     sess);
+	if (err) {
+		galv_ratelim_notice("session: cannot poll connection...",
+		                    "session: cannot poll connection: %s (%d)",
+		                    strerror(-err),
+		                    -err);
+		goto close;
+	}
+
+	galv_conn_switch_state(conn, GALV_CONN_ESTABLISHED_STATE);
+	galv_debug("session: established");
+
+	return 0;
+
+close:
+	galv_sess_close(sess);
+free:
+	free(sess);
+
+	return err;
+}
+
+static
+int galv_sess_on_send_closed(struct galv_conn * __restrict   conn __unused,
+                             uint32_t                        events __unused,
+                             const struct upoll * __restrict poller __unused)
+{
+	galv_debug("session: %s: implement me", __func__);
+	return -ENOSYS;
+}
+
+static
+int galv_sess_on_recv_closed(struct galv_conn * __restrict   conn __unused,
+                             uint32_t                        events __unused,
+                             const struct upoll * __restrict poller __unused)
+{
+	galv_debug("session: %s: implement me", __func__);
+	return -ENOSYS;
+}
+
+static
+int galv_sess_on_error(struct galv_conn * __restrict   conn __unused,
+                       uint32_t                        events __unused,
+                       const struct upoll * __restrict poller __unused)
+{
+	galv_debug("session: %s: implement me", __func__);
+	return -ENOSYS;
+}
+
+const struct galv_conn_ops galv_sess_ops = {
+	.on_may_xfer    = galv_sess_on_may_xfer,
+	.on_connecting  = galv_sess_on_connecting,
+	.on_send_closed = galv_sess_on_send_closed,
+	.on_recv_closed = galv_sess_on_recv_closed,
+	.on_error       = galv_sess_on_error
+};
+#endif

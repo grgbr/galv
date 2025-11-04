@@ -27,6 +27,11 @@ subdirs         += test
 test-deps       := lib
 endif # ($(CONFIG_GALV_UTEST),y)
 
+ifeq ($(CONFIG_GALV_SMPL),y)
+subdirs         += sample
+sample-deps     := lib
+endif # ($(CONFIG_GALV_SMPL),y)
+
 define libgalv_pkgconf_tmpl
 prefix=$(PREFIX)
 exec_prefix=$${prefix}

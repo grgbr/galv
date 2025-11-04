@@ -90,6 +90,7 @@ struct galv_fabric_palloc {
 extern int
 galv_fabric_palloc_init(struct galv_fabric_palloc * __restrict fabric,
                         unsigned int                           chunk_nr,
-                        size_t                                 chunk_size);
+                        size_t                                 chunk_size)
+	__export_public;
 
 #endif /* _GALV_FABRIC_H */
