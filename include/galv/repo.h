@@ -19,104 +19,111 @@
 #ifndef _GALV_REPO_H
 #define _GALV_REPO_H
 
-#include <galv/conn.h>
+#include <galv/cdefs.h>
+#include <stroll/dlist.h>
 
-struct galv_conn_repo {
+struct galv_repo {
 	unsigned int             cnt;
 	unsigned int             nr;
-	struct stroll_dlist_node conns;
+	struct stroll_dlist_node elems;
 };
 
-#define galv_repo_assert_iface_api(_repo) \
+#define galv_repo_assert_api(_repo) \
 	galv_assert_api(_repo); \
 	galv_assert_api((_repo)->nr); \
 	galv_assert_api((_repo)->cnt <= (_repo)->nr)
 
-#define GALV_CONN_REPO_INIT(_repo, _nr) \
+#define GALV_REPO_INIT(_repo, _nr) \
 	{ \
 		.cnt   = 0, \
 		.nr    = _nr, \
-		.conns = STROLL_DLIST_INIT((_repo).conns), \
+		.elems = STROLL_DLIST_INIT((_repo).elems), \
 	}
 
 static inline
-struct galv_conn *
-galv_conn_repo_pop(struct galv_conn_repo * __restrict repo)
+unsigned int
+galv_repo_count(const struct galv_repo * __restrict repository)
 {
-	return stroll_dlist_entry(stroll_dlist_dqueue_front(&repo->conns),
-	                          struct galv_conn,
-	                          repo);
+	galv_repo_assert_api(repository);
+
+	return repository->cnt;
 }
 
 static inline
 unsigned int
-galv_conn_repo_count(const struct galv_conn_repo * __restrict repo)
+galv_repo_nr(const struct galv_repo * __restrict repository)
 {
-	galv_repo_assert_iface_api(repo);
+	galv_repo_assert_api(repository);
 
-	return repo->cnt;
-}
-
-static inline
-unsigned int
-galv_conn_repo_nr(const struct galv_conn_repo * __restrict repo)
-{
-	galv_repo_assert_iface_api(repo);
-
-	return repo->nr;
+	return repository->nr;
 }
 
 static inline
 bool
-galv_conn_repo_empty(const struct galv_conn_repo * __restrict repo)
+galv_repo_empty(const struct galv_repo * __restrict repository)
 {
-	galv_repo_assert_iface_api(repo);
+	galv_repo_assert_api(repository);
 
-	return !repo->cnt;
+	return !repository->cnt;
 }
 
 static inline
 bool
-galv_conn_repo_full(const struct galv_conn_repo * __restrict repo)
+galv_repo_full(const struct galv_repo * __restrict repository)
 {
-	galv_repo_assert_iface_api(repo);
+	galv_repo_assert_api(repository);
 
-	return repo->cnt == repo->nr;
+	return repository->cnt == repository->nr;
 }
 
 static inline
 void
-galv_conn_repo_register(struct galv_conn_repo * __restrict repo,
-                        struct galv_conn * __restrict      conn)
+galv_repo_register(struct galv_repo * __restrict         repository,
+                   struct stroll_dlist_node * __restrict node)
 {
-	galv_repo_assert_iface_api(repo);
-	galv_assert_api(repo->cnt < repo->nr);
+	galv_repo_assert_api(repository);
+	galv_assert_api(repository->cnt < repository->nr);
 
-	stroll_dlist_nqueue_back(&repo->conns, &conn->repo);
-	repo->cnt++;
+	stroll_dlist_nqueue_back(&repository->elems, node);
+	repository->cnt++;
+}
+
+static inline
+struct stroll_dlist_node *
+galv_repo_pop(struct galv_repo * __restrict repository)
+{
+	galv_repo_assert_api(repository);
+	galv_assert_api(repository->cnt);
+
+	struct stroll_dlist_node * node;
+
+	node = stroll_dlist_dqueue_front(&repository->elems);
+	repository->cnt--;
+
+	return node;
 }
 
 static inline
 void
-galv_conn_repo_unregister(struct galv_conn_repo * __restrict repo,
-                          struct galv_conn * __restrict      conn)
+galv_repo_unregister(struct galv_repo * __restrict         repository,
+                     struct stroll_dlist_node * __restrict node)
 {
-	galv_repo_assert_iface_api(repo);
+	galv_repo_assert_api(repository);
+	galv_assert_api(repository->cnt);
 
-	stroll_dlist_remove(&conn->repo);
-	repo->cnt--;
+	stroll_dlist_remove(node);
+	repository->cnt--;
 }
 
 extern void
-galv_conn_repo_init(struct galv_conn_repo * __restrict repo,
-                    unsigned int                       max_conn)
+galv_repo_init(struct galv_repo * __restrict repository, unsigned int max_nr)
 	__export_public;
 
 static inline
 void
-galv_conn_repo_fini(struct galv_conn_repo * __restrict repo __unused)
+galv_repo_fini(struct galv_repo * __restrict repository __unused)
 {
-	galv_repo_assert_iface_api(repo);
+	galv_repo_assert_api(repository);
 }
 
 #endif /* _GALV_REPO_H */

@@ -39,17 +39,11 @@ config GALV_UTEST
 	help
 	  Build Galv library unit test suite.
 
-config GALV_FABRIC
-	bool "Connection fabric"
+config GALV_ALLOC
+	bool "Allocator"
 	default n
 	help
-	  Build Galv library with support for connection fabric (allocator).
-
-config GALV_REPO
-	bool "Connection repository"
-	default n
-	help
-	  Build Galv library with support for connection repository.
+	  Build Galv library with support for custom allocator.
 
 config GALV_GATE
 	bool "Connection gate"
@@ -57,37 +51,27 @@ config GALV_GATE
 	help
 	  Build Galv library with socket connection filtering support.
 
-config GALV_UNIX_CONN
+config GALV_UNIX
 	bool "Unix socket connection"
+	select GALV_ALLOC
 	default y
 	help
 	  Build Galv library with Unix socket based connection support.
 
-config GALV_UNIX_CONN_GATE_HASH_RATIO
+config GALV_UNIX_GATE_HASH_RATIO
 	int "Unix socket gate hash fill ratio"
-	depends on GALV_UNIX_CONN
+	depends on GALV_UNIX && GALV_GATE
 	default 70
 	help
 	  Unix socket based connection filtering hash table targeted fill ratio.
 
-config GALV_UNIX_CONN_GATE_HASH_BITS
+config GALV_UNIX_GATE_HASH_BITS
 	int "Unix socket gate hash log size"
-	depends on GALV_UNIX_CONN
+	depends on GALV_UNIX && GALV_GATE
 	default 8
 	help
 	  Logarithm base 2 of maximum number of buckets of Unix socket based
 	  connection filtering hash table.
-
-config GALV_SVC
-	bool "Connection oriented service"
-	default n
-	depends on GALV_UNIX_CONN
-	select GALV_GATE
-	select GALV_FABRIC
-	select GALV_REPO
-	help
-	  Build Galv library with support for high-level service objects
-	  allowing to implement full-featured services easily.
 
 config GALV_BUFF
 	bool "Core network buffer"
@@ -96,7 +80,7 @@ config GALV_BUFF
 	  Build Galv library with network buffer support.
 
 config GALV_FRAG
-	bool
+	bool "Core network fragment"
 	select GALV_BUFF
 	default n
 	help
@@ -115,11 +99,18 @@ config GALV_SMPL
 	help
 	  Build Galv library with usage sample code.
 
+config GALV_SMPL_DISC
+	bool "Discard sample code"
+	depends on GALV_SMPL
+	select GALV_UNIX
+	default n
+	help
+	  Build Galv library with discard service usage sample code.
+
 config GALV_SMPL_SESS
 	bool "Session sample code"
 	depends on GALV_SMPL
-	select GALV_UNIX_CONN
-	select GALV_SVC
+	select GALV_UNIX
 	select GALV_SESS
 	default n
 	help

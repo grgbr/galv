@@ -11,11 +11,15 @@
 #include <stroll/dlist.h>
 
 struct galv_conn;
-struct galv_service;
+struct galv_accept;
+
+/******************************************************************************
+ * Generic connection handling
+ ******************************************************************************/
 
 typedef int galv_conn_handle_fn(struct galv_conn * __restrict,
-		                uint32_t,
-		                const struct upoll * __restrict);
+                                uint32_t,
+                                const struct upoll * __restrict);
 
 /*
  * TODO: document state chart.
@@ -55,12 +59,12 @@ struct galv_conn {
 	enum galv_conn_state         state;
 	int                          fd;
 	struct upoll_worker          work;
+	struct galv_accept *         accept;
 	void *                       ctx;
-	struct galv_service *        svc;
 	struct stroll_dlist_node     repo;
 };
 
-#define galv_conn_assert_iface_api(_conn) \
+#define galv_conn_assert_api(_conn) \
 	galv_assert_api(_conn); \
 	galv_conn_assert_ops_api((_conn)->ops); \
 	galv_assert_api((_conn)->state >= 0); \
@@ -81,176 +85,170 @@ galv_conn_from_worker(const struct upoll_worker * __restrict worker)
 }
 
 static inline
-struct galv_service *
-galv_conn_service(const struct galv_conn * __restrict conn)
+struct galv_accept *
+galv_conn_acceptor(const struct galv_conn * __restrict connection)
 {
-	galv_conn_assert_iface_api(conn);
-	galv_assert_api(conn->state != GALV_CONN_CLOSED_STATE);
+	galv_conn_assert_api(connection);
+	galv_assert_api(connection->state != GALV_CONN_CLOSED_STATE);
 
-	return conn->svc;
+	return connection->accept;
 }
 
 static inline
 void *
-galv_conn_context(const struct galv_conn * __restrict conn)
+galv_conn_context(const struct galv_conn * __restrict connection)
 {
-	galv_conn_assert_iface_api(conn);
-	galv_assert_api(conn->state != GALV_CONN_CLOSED_STATE);
+	galv_conn_assert_api(connection);
+	galv_assert_api(connection->state != GALV_CONN_CLOSED_STATE);
 
-	return conn->ctx;
+	return connection->ctx;
 }
 
 static inline
 enum galv_conn_state
-galv_conn_state(const struct galv_conn * __restrict conn)
+galv_conn_state(const struct galv_conn * __restrict connection)
 {
-	galv_conn_assert_iface_api(conn);
+	galv_conn_assert_api(connection);
 
-	return conn->state;
+	return connection->state;
 }
 
 static inline
 void
-galv_conn_switch_state(struct galv_conn * __restrict conn,
+galv_conn_switch_state(struct galv_conn * __restrict connection,
                        enum galv_conn_state          state)
 {
-	galv_conn_assert_iface_api(conn);
+	galv_conn_assert_api(connection);
 	galv_assert_api(state >= 0);
 	galv_assert_api(state < GALV_CONN_STATE_NR);
 
-	conn->state = state;
+	connection->state = state;
 }
 
 static inline
 uint32_t
-galv_conn_watched(const struct galv_conn * __restrict conn)
+galv_conn_watched(const struct galv_conn * __restrict connection)
 {
-	galv_conn_assert_iface_api(conn);
-	galv_assert_api(conn->fd >= 0);
-	galv_assert_api(conn->state != GALV_CONN_CLOSED_STATE);
-	galv_assert_api(conn->state != GALV_CONN_CLOSING_STATE);
+	galv_conn_assert_api(connection);
+	galv_assert_api(connection->fd >= 0);
+	galv_assert_api(connection->state != GALV_CONN_CLOSED_STATE);
+	galv_assert_api(connection->state != GALV_CONN_CLOSING_STATE);
 
-	return upoll_watched_events(&conn->work);
+	return upoll_watched_events(&connection->work);
 }
 
 static inline
 void
-galv_conn_watch(struct galv_conn * __restrict conn,
+galv_conn_watch(struct galv_conn * __restrict connection,
                 uint32_t                      events)
 {
-	galv_conn_assert_iface_api(conn);
-	galv_assert_api(conn->fd >= 0);
-	galv_assert_api(conn->state != GALV_CONN_CLOSED_STATE);
-	galv_assert_api(conn->state != GALV_CONN_CLOSING_STATE);
+	galv_conn_assert_api(connection);
+	galv_assert_api(connection->fd >= 0);
+	galv_assert_api(connection->state != GALV_CONN_CLOSED_STATE);
+	galv_assert_api(connection->state != GALV_CONN_CLOSING_STATE);
 
-	upoll_enable_watch(&conn->work, events);
+	upoll_enable_watch(&connection->work, events);
 }
 
 static inline
 void
-galv_conn_unwatch(struct galv_conn * __restrict conn,
+galv_conn_unwatch(struct galv_conn * __restrict connection,
                   uint32_t                      events)
 {
-	galv_conn_assert_iface_api(conn);
-	galv_assert_api(conn->fd >= 0);
-	galv_assert_api(conn->state != GALV_CONN_CLOSED_STATE);
-	galv_assert_api(conn->state != GALV_CONN_CLOSING_STATE);
+	galv_conn_assert_api(connection);
+	galv_assert_api(connection->fd >= 0);
+	galv_assert_api(connection->state != GALV_CONN_CLOSED_STATE);
+	galv_assert_api(connection->state != GALV_CONN_CLOSING_STATE);
 
-	upoll_disable_watch(&conn->work, events);
+	upoll_disable_watch(&connection->work, events);
 }
 
 static inline
 int
-galv_conn_on_may_xfer(struct galv_conn * __restrict   conn,
-		      uint32_t                        events,
-		      const struct upoll * __restrict poller)
+galv_conn_on_may_xfer(struct galv_conn * __restrict   connection,
+                      uint32_t                        events,
+                      const struct upoll * __restrict poller)
 {
-	galv_conn_assert_iface_api(conn);
-	galv_assert_api(conn->state != GALV_CONN_CLOSING_STATE);
-	galv_assert_api(conn->state != GALV_CONN_CLOSED_STATE);
+	galv_conn_assert_api(connection);
+	galv_assert_api(connection->state != GALV_CONN_CLOSING_STATE);
+	galv_assert_api(connection->state != GALV_CONN_CLOSED_STATE);
 	galv_assert_api(!(events & ~((uint32_t)(EPOLLIN | EPOLLPRI |
 	                                        EPOLLOUT | EPOLLHUP))));
 	galv_assert_api(events);
 	galv_assert_api(poller);
 
-	return conn->ops->on_may_xfer(conn, events, poller);
+	return connection->ops->on_may_xfer(connection, events, poller);
 }
 
 static inline
 int
-galv_conn_on_connecting(struct galv_conn * __restrict   conn,
-		        uint32_t                        events,
-		        const struct upoll * __restrict poller)
+galv_conn_on_connecting(struct galv_conn * __restrict   connection,
+                        uint32_t                        events,
+                        const struct upoll * __restrict poller)
 {
-	galv_conn_assert_iface_api(conn);
-	galv_assert_api(conn->state == GALV_CONN_CLOSED_STATE);
+	galv_conn_assert_api(connection);
+	galv_assert_api(connection->state == GALV_CONN_CLOSED_STATE);
 	galv_assert_api(!(events & ~((uint32_t)(EPOLLIN | EPOLLPRI |
 	                                        EPOLLOUT))));
 	galv_assert_api(poller);
 
-	conn->state = GALV_CONN_CONNECTING_STATE;
+	connection->state = GALV_CONN_CONNECTING_STATE;
 
-	return conn->ops->on_connecting(conn, events, poller);
+	return connection->ops->on_connecting(connection, events, poller);
 }
 
 static inline
 int
-galv_conn_on_send_closed(struct galv_conn * __restrict   conn,
-		         uint32_t                        events,
-		         const struct upoll * __restrict poller)
+galv_conn_on_send_closed(struct galv_conn * __restrict   connection,
+                         uint32_t                        events,
+                         const struct upoll * __restrict poller)
 {
-	galv_conn_assert_iface_api(conn);
-	galv_assert_api(conn->state != GALV_CONN_CLOSING_STATE);
-	galv_assert_api(conn->state != GALV_CONN_CLOSED_STATE);
+	galv_conn_assert_api(connection);
+	galv_assert_api(connection->state != GALV_CONN_CLOSING_STATE);
+	galv_assert_api(connection->state != GALV_CONN_CLOSED_STATE);
 	galv_assert_api(!(events & ~GALV_CONN_POLL_VALID_EVENTS));
 	galv_assert_api(events & (EPOLLIN | EPOLLPRI | EPOLLHUP));
 	galv_assert_api(poller);
 
-	galv_conn_unwatch(conn, EPOLLOUT);
-	conn->state = GALV_CONN_SENDSHUT_STATE;
+	galv_conn_unwatch(connection, EPOLLOUT);
+	connection->state = GALV_CONN_SENDSHUT_STATE;
 
-	return conn->ops->on_send_closed(conn, events, poller);
+	return connection->ops->on_send_closed(connection, events, poller);
 }
 
 static inline
 int
-galv_conn_on_recv_closed(struct galv_conn * __restrict   conn,
-		         uint32_t                        events,
-		         const struct upoll * __restrict poller)
+galv_conn_on_recv_closed(struct galv_conn * __restrict   connection,
+                         uint32_t                        events,
+                         const struct upoll * __restrict poller)
 {
-	galv_conn_assert_iface_api(conn);
-	galv_assert_api(conn->state != GALV_CONN_CLOSING_STATE);
-	galv_assert_api(conn->state != GALV_CONN_CLOSED_STATE);
+	galv_conn_assert_api(connection);
+	galv_assert_api(connection->state != GALV_CONN_CLOSING_STATE);
+	galv_assert_api(connection->state != GALV_CONN_CLOSED_STATE);
 	galv_assert_api(!(events & ~GALV_CONN_POLL_VALID_EVENTS));
 	galv_assert_api(events & (EPOLLIN | EPOLLRDHUP));
 	galv_assert_api(poller);
 
-	galv_conn_unwatch(conn, EPOLLIN | EPOLLPRI | EPOLLRDHUP);
-	conn->state = GALV_CONN_RECVSHUT_STATE;
+	galv_conn_unwatch(connection, EPOLLIN | EPOLLPRI | EPOLLRDHUP);
+	connection->state = GALV_CONN_RECVSHUT_STATE;
 
-	return conn->ops->on_recv_closed(conn, events, poller);
+	return connection->ops->on_recv_closed(connection, events, poller);
 }
 
 static inline
 int
-galv_conn_on_error(struct galv_conn * __restrict   conn,
-		   uint32_t                        events,
-		   const struct upoll * __restrict poller)
+galv_conn_on_error(struct galv_conn * __restrict   connection,
+                   uint32_t                        events,
+                   const struct upoll * __restrict poller)
 {
-	galv_conn_assert_iface_api(conn);
-	galv_assert_api(conn->state != GALV_CONN_CLOSED_STATE);
+	galv_conn_assert_api(connection);
+	galv_assert_api(connection->state != GALV_CONN_CLOSED_STATE);
 	galv_assert_api(!(events & ~GALV_CONN_POLL_VALID_EVENTS));
 	galv_assert_api(events & EPOLLERR);
 	galv_assert_api(poller);
 
-	return conn->ops->on_error(conn, events, poller);
+	return connection->ops->on_error(connection, events, poller);
 }
-
-extern int
-galv_conn_dispatch(struct upoll_worker * worker,
-                   uint32_t              events,
-                   const struct upoll *  poller)
-	__export_public;
 
 /**
  * @return A non zero number of bytes sent upon success, a negative `errno`
@@ -268,18 +266,18 @@ galv_conn_dispatch(struct upoll_worker * worker,
  */
 static inline
 ssize_t
-galv_conn_send(struct galv_conn * __restrict conn,
+galv_conn_send(struct galv_conn * __restrict connection,
                const void * __restrict       buff,
                size_t                        size,
                int                           flags)
 {
 #define GALV_CONN_SEND_FLAGS \
 	(MSG_DONTWAIT | MSG_EOR |MSG_MORE | MSG_NOSIGNAL | MSG_OOB)
-	galv_conn_assert_iface_api(conn);
-	galv_assert_api(conn->fd >= 0);
-	galv_assert_api(conn->state != GALV_CONN_CLOSED_STATE);
-	galv_assert_api(conn->state != GALV_CONN_CONNECTING_STATE);
-	galv_assert_api(conn->state != GALV_CONN_CLOSING_STATE);
+	galv_conn_assert_api(connection);
+	galv_assert_api(connection->fd >= 0);
+	galv_assert_api(connection->state != GALV_CONN_CLOSED_STATE);
+	galv_assert_api(connection->state != GALV_CONN_CONNECTING_STATE);
+	galv_assert_api(connection->state != GALV_CONN_CLOSING_STATE);
 	galv_assert_api(buff); /* prohibit empty packets ! */
 	galv_assert_api(size); /* prohibit empty packets ! */
 	galv_assert_api(size <= SSIZE_MAX);
@@ -287,7 +285,7 @@ galv_conn_send(struct galv_conn * __restrict conn,
 
 	ssize_t ret;
 
-	ret = etux_sock_send(conn->fd, buff, size, MSG_NOSIGNAL | flags);
+	ret = etux_sock_send(connection->fd, buff, size, MSG_NOSIGNAL | flags);
 	if (ret >= 0) {
 		/* Empty packets prohibited. */
 		galv_assert_api(ret);
@@ -311,18 +309,18 @@ galv_conn_send(struct galv_conn * __restrict conn,
  */
 static inline
 ssize_t
-galv_conn_recv(struct galv_conn * __restrict conn,
+galv_conn_recv(struct galv_conn * __restrict connection,
                void * __restrict             buff,
                size_t                        size,
                int                           flags)
 {
 #define GALV_CONN_RECV_VALID_FLAGS \
 	(MSG_DONTWAIT | MSG_ERRQUEUE | MSG_OOB | MSG_PEEK | MSG_TRUNC)
-	galv_conn_assert_iface_api(conn);
-	galv_assert_api(conn->fd >= 0);
-	galv_assert_api(conn->state != GALV_CONN_CLOSED_STATE);
-	galv_assert_api(conn->state != GALV_CONN_CONNECTING_STATE);
-	galv_assert_api(conn->state != GALV_CONN_CLOSING_STATE);
+	galv_conn_assert_api(connection);
+	galv_assert_api(connection->fd >= 0);
+	galv_assert_api(connection->state != GALV_CONN_CLOSED_STATE);
+	galv_assert_api(connection->state != GALV_CONN_CONNECTING_STATE);
+	galv_assert_api(connection->state != GALV_CONN_CLOSING_STATE);
 	galv_assert_api(buff);
 	galv_assert_api(size);
 	galv_assert_api(size <= SSIZE_MAX);
@@ -330,7 +328,7 @@ galv_conn_recv(struct galv_conn * __restrict conn,
 
 	ssize_t ret;
 
-	ret = etux_sock_recv(conn->fd, buff, size, flags);
+	ret = etux_sock_recv(connection->fd, buff, size, flags);
 	if (ret)
 		return ret;
 
@@ -357,17 +355,17 @@ galv_conn_recv(struct galv_conn * __restrict conn,
  */
 static inline
 ssize_t
-galv_conn_recvmsg(struct galv_conn * __restrict conn,
+galv_conn_recvmsg(struct galv_conn * __restrict connection,
                   struct msghdr * __restrict    msg,
                   int                           flags)
 {
 #define GALV_CONN_RECVMSG_VALID_FLAGS \
 	(MSG_CMSG_CLOEXEC | GALV_CONN_RECV_VALID_FLAGS)
-	galv_conn_assert_iface_api(conn);
-	galv_assert_api(conn->fd >= 0);
-	galv_assert_api(conn->state != GALV_CONN_CLOSED_STATE);
-	galv_assert_api(conn->state != GALV_CONN_CONNECTING_STATE);
-	galv_assert_api(conn->state != GALV_CONN_CLOSING_STATE);
+	galv_conn_assert_api(connection);
+	galv_assert_api(connection->fd >= 0);
+	galv_assert_api(connection->state != GALV_CONN_CLOSED_STATE);
+	galv_assert_api(connection->state != GALV_CONN_CONNECTING_STATE);
+	galv_assert_api(connection->state != GALV_CONN_CLOSING_STATE);
 	galv_assert_api(msg);
 	galv_assert_api(!msg->msg_name);
 	galv_assert_api(msg->msg_iov || msg->msg_control);
@@ -377,7 +375,7 @@ galv_conn_recvmsg(struct galv_conn * __restrict conn,
 
 	ssize_t ret;
 
-	ret = etux_sock_recvmsg(conn->fd, msg, flags);
+	ret = etux_sock_recvmsg(connection->fd, msg, flags);
 	if (ret)
 		return ret;
 
@@ -391,50 +389,36 @@ galv_conn_recvmsg(struct galv_conn * __restrict conn,
  * @retval -ENOSPC Maximum system number of per-user (UID) pollable file
  *         descriptors reached (see @man{epoll_ctl(2)} and @man{epoll(7)})
  */
-static inline
-int
-galv_conn_poll(struct galv_conn * __restrict   conn,
-               upoll_dispatch_fn *             dispatch,
+extern int
+galv_conn_poll(struct galv_conn * __restrict   connection,
                const struct upoll * __restrict poller,
                uint32_t                        events,
                void * __restrict               context)
-{
-	galv_conn_assert_iface_api(conn);
-	galv_assert_api(conn->fd >= 0);
-	galv_assert_api(conn->state != GALV_CONN_CLOSED_STATE);
-	galv_assert_api(dispatch);
-	galv_assert_api(poller);
-	galv_assert_api(events);
-	galv_assert_api(!(events & ~GALV_CONN_POLL_VALID_EVENTS));
-
-	conn->work.dispatch = dispatch;
-	conn->ctx = context;
-	return upoll_register(poller, conn->fd, events, &conn->work);
-}
+	__export_public;
 
 static inline
 void
-galv_conn_unpoll(const struct galv_conn * __restrict conn,
+galv_conn_unpoll(const struct galv_conn * __restrict connection,
                  const struct upoll * __restrict     poller)
 {
-	galv_conn_assert_iface_api(conn);
-	galv_assert_api(conn->fd >= 0);
-	galv_assert_api(conn->state != GALV_CONN_CLOSED_STATE);
+	galv_conn_assert_api(connection);
+	galv_assert_api(connection->fd >= 0);
+	galv_assert_api(connection->state != GALV_CONN_CLOSED_STATE);
 	galv_assert_api(poller);
 
-	upoll_unregister(poller, conn->fd);
+	upoll_unregister(poller, connection->fd);
 }
 
 static inline
 void
-galv_conn_launch_close(struct galv_conn * __restrict conn)
+galv_conn_launch_close(struct galv_conn * __restrict connection)
 {
-	galv_conn_assert_iface_api(conn);
-	galv_assert_api(conn->fd >= 0);
-	galv_assert_api(conn->state != GALV_CONN_CLOSING_STATE);
-	galv_assert_api(conn->state != GALV_CONN_CLOSED_STATE);
+	galv_conn_assert_api(connection);
+	galv_assert_api(connection->fd >= 0);
+	galv_assert_api(connection->state != GALV_CONN_CLOSING_STATE);
+	galv_assert_api(connection->state != GALV_CONN_CLOSED_STATE);
 
-	conn->state = GALV_CONN_CLOSING_STATE;
+	connection->state = GALV_CONN_CLOSING_STATE;
 }
 
 /**
@@ -453,19 +437,58 @@ galv_conn_launch_close(struct galv_conn * __restrict conn)
  */
 static inline
 int
-galv_conn_complete_close(struct galv_conn * __restrict conn)
+galv_conn_complete_close(struct galv_conn * __restrict connection)
 {
-	galv_conn_assert_iface_api(conn);
-	galv_assert_api(conn->fd >= 0);
-	galv_assert_api(conn->state != GALV_CONN_CLOSED_STATE);
+	galv_conn_assert_api(connection);
+	galv_assert_api(connection->fd >= 0);
+	galv_assert_api(connection->state != GALV_CONN_CLOSED_STATE);
 
 	int ret;
 
-	ret = etux_sock_close(conn->fd);
+	ret = etux_sock_close(connection->fd);
 
-	conn->state = GALV_CONN_CLOSED_STATE;
+	connection->state = GALV_CONN_CLOSED_STATE;
 
 	return ret;
+}
+
+/******************************************************************************
+ * Generic connection repository
+ ******************************************************************************/
+
+#include <galv/repo.h>
+
+static inline
+void
+galv_conn_repo_register(struct galv_repo * __restrict repository,
+                        struct galv_conn * __restrict connection)
+{
+	galv_repo_assert_api(repository);
+	galv_conn_assert_api(connection);
+
+	galv_repo_register(repository, &connection->repo);
+}
+
+static inline
+struct galv_conn *
+galv_conn_repo_pop(struct galv_repo * __restrict repository)
+{
+	galv_assert_api(repository);
+
+	return stroll_dlist_entry(galv_repo_pop(repository),
+	                          struct galv_conn,
+	                          repo);
+}
+
+static inline
+void
+galv_conn_repo_unregister(struct galv_repo * __restrict repository,
+                          struct galv_conn * __restrict connection)
+{
+	galv_repo_assert_api(repository);
+	galv_conn_assert_api(connection);
+
+	galv_repo_unregister(repository, &connection->repo);
 }
 
 #endif /* _GALV_CONN_H */

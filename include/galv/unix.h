@@ -19,39 +19,70 @@
 #ifndef _GALV_UNIX_H
 #define _GALV_UNIX_H
 
-#include <galv/service.h>
-#include <sys/un.h>
-#include <sys/socket.h>
+#include <galv/priv/unix.h>
 
-struct galv_unix_addr {
-	socklen_t          size;
-	struct sockaddr_un data;
-};
+struct stroll_alloc;
 
-#define galv_unix_assert_addr_api(_addr) \
-	galv_assert_api(_addr); \
-	galv_assert_api((_addr)->size >= sizeof(sa_family_t))
+/******************************************************************************
+ * Unix connection allocator
+ ******************************************************************************/
 
-struct galv_unix_service {
-	struct galv_service   base;
-	int                   fd;
-	struct galv_unix_addr bind_addr;
-};
+extern struct stroll_alloc *
+galv_unix_create_conn_alloc(unsigned int nr)
+	__export_public;
+
+/******************************************************************************
+ * UNIX socket adopter
+ ******************************************************************************/
 
 extern int
-galv_unix_service_on_accept_conn(
-	struct galv_service * __restrict        service,
-	int                                     flags,
-	const struct galv_conn_ops * __restrict ops,
-	uint32_t                                events __unused,
-	const struct upoll * __restrict         poller)
+galv_unix_adopt_open(struct galv_unix_adopt * __restrict adopter,
+                     const char * __restrict             path,
+                     int                                 type,
+                     int                                 flags,
+                     struct stroll_alloc * __restrict    allocator,
+                     struct galv_gate * __restrict       gate)
 	__export_public;
 
 extern int
-galv_unix_service_on_accept_close(struct galv_service * __restrict service,
-                                  struct galv_conn * __restrict    conn,
-                                  const struct upoll * __restrict  poller)
+galv_unix_adopt_close(const struct galv_unix_adopt * __restrict adopter)
 	__export_public;
+
+/******************************************************************************
+ * Credential based UNIX connection gate handling
+ ******************************************************************************/
+
+#if defined(CONFIG_GALV_GATE)
+
+#include <galv/gate.h>
+
+struct stroll_hlist;
+
+struct galv_unix_gate_ucred {
+	struct galv_gate      base;
+	unsigned int          cnt;
+	unsigned int          nr;
+	unsigned int          bits;
+	unsigned int          per_pid;
+	struct stroll_hlist * pids;
+	unsigned int          per_uid;
+	struct stroll_hlist * uids;
+	struct stroll_alloc * alloc;
+};
+
+extern int
+galv_unix_gate_ucred_init(struct galv_unix_gate_ucred * __restrict gate,
+                          unsigned int                             max_conn,
+                          unsigned int                             max_per_pid,
+                          unsigned int                             max_per_uid)
+	__export_public;
+
+extern void
+galv_unix_gate_ucred_fini(struct galv_unix_gate_ucred * __restrict gate)
+	__export_public;
+
+#endif /* defined(CONFIG_GALV_GATE) */
+
 
 #if 0
 #include <galv/acceptor.h>
@@ -124,41 +155,6 @@ extern int
 galv_unix_acceptor_close(const struct galv_unix_acceptor * __restrict acceptor,
                          const struct upoll * __restrict              poller)
 	__export_public;
-
-/******************************************************************************
- * Credential based unix connection gate handling
- ******************************************************************************/
-
-#if defined(CONFIG_GALV_GATE)
-
-#include "galv/gate.h"
-#include <stroll/hlist.h>
-#include <stroll/palloc.h>
-
-struct galv_unix_gate_ucred {
-	struct galv_gate      base;
-	unsigned int          cnt;
-	unsigned int          nr;
-	unsigned int          bits;
-	unsigned int          per_pid;
-	struct stroll_hlist * pids;
-	unsigned int          per_uid;
-	struct stroll_hlist * uids;
-	struct stroll_palloc  alloc;
-};
-
-extern int
-galv_unix_gate_ucred_init(struct galv_unix_gate_ucred * __restrict gate,
-                          unsigned int                             max_conn,
-                          unsigned int                             max_per_pid,
-                          unsigned int                             max_per_uid)
-	__export_public;
-
-extern void
-galv_unix_gate_ucred_fini(struct galv_unix_gate_ucred * __restrict gate)
-	__export_public;
-
-#endif /* defined(CONFIG_GALV_GATE) */
 
 /******************************************************************************
  * Asynchronous Unix connection oriented service

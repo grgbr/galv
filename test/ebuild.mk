@@ -33,7 +33,7 @@ builtin_utest.a-objs   := echosvc.o ncsvc.o utest.o $(config-obj)
 builtin_utest.a-cflags := $(utest-cflags)
 
 checkbins              := galv-utest
-galv-utest-objs        += $(call kconf_enabled,GALV_UNIX_CONN,unix.o)
+galv-utest-objs        += $(call kconf_enabled,GALV_UNIX,unix.o)
 galv-utest-cflags      := $(utest-cflags)
 galv-utest-ldflags     := $(utest-ldflags)
 galv-utest-pkgconf     := libelog libutils libstroll libcute

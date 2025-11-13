@@ -22,39 +22,57 @@
 #include <galv/cdefs.h>
 #include <stroll/buffer.h>
 #include <stroll/slist.h>
-#include <stroll/lalloc.h>
+#include <stroll/alloc.h>
 
 /**
- * Core network buffer fabric.
+ * Core network buffer allocator
  */
-struct galv_buff_fabric {
-	struct stroll_lalloc base;
-	size_t               capa;
+struct galv_buff_alloc {
+	struct stroll_alloc * stroll;
+	size_t                capa;
 };
 
-#define galv_buff_fabric_assert_api(_fabric) \
-	galv_assert_api(_fabric); \
-	galv_assert_api((_fabric)->capa >= STROLL_BUFF_CAPACITY_MIN); \
-	galv_assert_api((_fabric)->capa <= STROLL_BUFF_CAPACITY_MAX)
+#define galv_buff_assert_alloc_api(_alloc) \
+	galv_assert_api((_alloc)->stroll); \
+	galv_assert_api((_alloc)->capa >= STROLL_BUFF_CAPACITY_MIN); \
+	galv_assert_api((_alloc)->capa <= STROLL_BUFF_CAPACITY_MAX)
 
 static inline
 size_t
-galv_buff_fabric_capacity(const struct galv_buff_fabric * __restrict fabric)
+galv_buff_alloc_capacity(const struct galv_buff_alloc * __restrict alloc)
 {
-	galv_buff_fabric_assert_api(fabric);
+	galv_buff_assert_alloc_api(alloc);
 
-	return fabric->capa;
+	return alloc->capa;
 }
 
 extern int
-galv_buff_init_fabric(struct galv_buff_fabric * __restrict fabric,
-                      unsigned int                         nr,
-                      size_t                               capacity)
+galv_buff_init_palloc(struct galv_buff_alloc * __restrict alloc,
+                      unsigned int                        nr,
+                      size_t                              size)
 	__export_public;
 
-extern void
-galv_buff_fini_fabric(struct galv_buff_fabric * __restrict fabric)
+extern int
+galv_buff_init_falloc(struct galv_buff_alloc * __restrict alloc,
+                      unsigned int                        nr,
+                      unsigned int                        per_block,
+                      size_t                              size)
 	__export_public;
+
+extern int
+galv_buff_init_lalloc(struct galv_buff_alloc * __restrict alloc,
+                      unsigned int                        nr,
+                      size_t                              size)
+	__export_public;
+
+static inline
+void
+galv_buff_fini_alloc(const struct galv_buff_alloc * __restrict alloc)
+{
+	galv_buff_assert_alloc_api(alloc);
+
+	stroll_alloc_destroy(alloc->stroll);
+}
 
 /**
  * Core network buffer.
@@ -62,19 +80,20 @@ galv_buff_fini_fabric(struct galv_buff_fabric * __restrict fabric)
  * A reference counted queueable contiguous memory area.
  */
 struct galv_buff {
-	struct stroll_buff        base;
-	struct stroll_slist_node  queue;
-	unsigned long             ref;
-	struct galv_buff_fabric * fabric;
-	uint8_t                   mem[0];
+	struct stroll_buff       base;
+	struct stroll_slist_node node;
+	struct galv_buff_queue * queue;
+	unsigned long            ref;
+	struct galv_buff_alloc * alloc;
+	uint8_t                  mem[0];
 };
 
 #define galv_buff_assert_api(_buff) \
 	galv_assert_api(_buff); \
 	galv_assert_api((_buff)->ref); \
-	galv_assert_api((_buff)->fabric); \
+	galv_assert_api((_buff)->alloc); \
 	galv_assert_api(stroll_buff_capacity(&(_buff)->base) == \
-	                galv_buff_fabric_capacity((_buff)->fabric))
+	                galv_buff_alloc_capacity((_buff)->alloc))
 
 static inline
 size_t
@@ -124,15 +143,9 @@ galv_buff_avail_tail(const struct galv_buff * __restrict buffer)
 	return stroll_buff_avail_tail(&buffer->base);
 }
 
-static inline
-void
+extern void
 galv_buff_grow_tail(struct galv_buff * __restrict buffer, size_t bytes)
-{
-	galv_buff_assert_api(buffer);
-	galv_assert_api(bytes <= galv_buff_avail_tail(buffer));
-
-	return stroll_buff_grow_tail(&buffer->base, bytes);
-}
+	__export_public;
 
 static inline
 uint8_t *
@@ -153,23 +166,17 @@ galv_buff_avail_head(const struct galv_buff * __restrict buffer)
 	return stroll_buff_avail_head(&buffer->base);
 }
 
-static inline
-void
+extern void
 galv_buff_grow_head(struct galv_buff * __restrict buffer, size_t bytes)
-{
-	galv_buff_assert_api(buffer);
-	galv_assert_api(bytes <= galv_buff_busy(buffer));
-
-	return stroll_buff_grow_head(&buffer->base, bytes);
-}
+	__export_public;
 
 static inline
 struct galv_buff *
 galv_buff_next(struct galv_buff * __restrict buffer)
 {
-	struct stroll_slist_node * next = stroll_slist_next(&buffer->queue);
+	struct stroll_slist_node * next = stroll_slist_next(&buffer->node);
 
-	return next ? stroll_slist_entry(next, struct galv_buff, queue) : NULL;
+	return next ? stroll_slist_entry(next, struct galv_buff, node) : NULL;
 }
 
 static inline
@@ -183,12 +190,12 @@ galv_buff_acquire(struct galv_buff * __restrict buffer)
 	return buffer;
 }
 
-extern void
-galv_buff_release(struct galv_buff * __restrict buffer)
+extern struct galv_buff *
+galv_buff_summon(struct galv_buff_alloc * __restrict alloc)
 	__export_public;
 
-extern struct galv_buff *
-galv_buff_summon(struct galv_buff_fabric * __restrict fabric)
+extern void
+galv_buff_release(struct galv_buff * __restrict buffer)
 	__export_public;
 
 /**
@@ -196,36 +203,47 @@ galv_buff_summon(struct galv_buff_fabric * __restrict fabric)
  */
 struct galv_buff_queue {
 	struct stroll_slist base;
+	unsigned int        cnt;
 	size_t              busy;
 };
 
-#define galv_buff_queue_assert_api(_buffq) \
+#define galv_buff_assert_queue_api(_buffq) \
 	galv_assert_api(_buffq); \
+	galv_assert_api((_buffq)->cnt ^ stroll_slist_empty(&(_buffq)->base)); \
 	galv_assert_api((_buffq)->busy ^ stroll_slist_empty(&(_buffq)->base))
-
-static inline
-size_t
-galv_buff_queue_busy(const struct galv_buff_queue * __restrict queue)
-{
-	galv_buff_queue_assert_api(queue);
-
-	return queue->busy;
-}
 
 static inline
 bool
 galv_buff_queue_empty(const struct galv_buff_queue * __restrict queue)
 {
-	galv_buff_queue_assert_api(queue);
+	galv_buff_assert_queue_api(queue);
 
 	return stroll_slist_empty(&queue->base);
+}
+
+static inline
+size_t
+galv_buff_queue_count(const struct galv_buff_queue * __restrict queue)
+{
+	galv_buff_assert_queue_api(queue);
+
+	return queue->cnt;
+}
+
+static inline
+size_t
+galv_buff_queue_busy(const struct galv_buff_queue * __restrict queue)
+{
+	galv_buff_assert_queue_api(queue);
+
+	return queue->busy;
 }
 
 static inline
 struct galv_buff *
 galv_buff_queue_first(const struct galv_buff_queue * __restrict queue)
 {
-	galv_buff_queue_assert_api(queue);
+	galv_buff_assert_queue_api(queue);
 	galv_assert_api(!galv_buff_queue_empty(queue));
 	galv_assert_api(queue->busy);
 
@@ -236,35 +254,11 @@ static inline
 struct galv_buff *
 galv_buff_queue_last(const struct galv_buff_queue * __restrict queue)
 {
-	galv_buff_queue_assert_api(queue);
+	galv_buff_assert_queue_api(queue);
 	galv_assert_api(!galv_buff_queue_empty(queue));
 	galv_assert_api(queue->busy);
 
 	return stroll_slist_last_entry(&queue->base, struct galv_buff, queue);
-}
-
-static inline
-void
-galv_buff_grow_queue(struct galv_buff_queue * __restrict queue,
-                     size_t                              bytes)
-{
-	galv_buff_queue_assert_api(queue);
-	galv_assert_api(bytes);
-	galv_assert_api((queue->busy + bytes) > queue->busy);
-
-	queue->busy += bytes;
-}
-
-static inline
-void
-galv_buff_shrink_queue(struct galv_buff_queue * __restrict queue,
-                       size_t                              bytes)
-{
-	galv_buff_queue_assert_api(queue);
-	galv_assert_api(bytes);
-	galv_assert_api(bytes <= queue->busy);
-
-	queue->busy -= bytes;
 }
 
 extern void
@@ -283,6 +277,7 @@ galv_buff_init_queue(struct galv_buff_queue * __restrict queue)
 	galv_assert_api(queue);
 
 	stroll_slist_init(&queue->base);
+	queue->cnt = 0;
 	queue->busy = 0;
 }
 
@@ -290,8 +285,9 @@ static inline
 void
 galv_buff_fini_queue(struct galv_buff_queue * __restrict queue)
 {
-	galv_buff_queue_assert_api(queue);
+	galv_buff_assert_queue_api(queue);
 	galv_assert_api(galv_buff_queue_empty(queue));
+	galv_assert_api(!queue->cnt);
 	galv_assert_api(!queue->busy);
 }
 

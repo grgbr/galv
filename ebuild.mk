@@ -10,15 +10,18 @@ config-h        := galv/priv/config.h
 config-obj      := config.o
 
 HEADERDIR       := $(CURDIR)/include
-headers          = galv/cdefs.h
-headers         += galv/acceptor.h
+headers         := galv/cdefs.h
+headers         += galv/accept.h
+headers         += galv/priv/adopt.h
 headers         += galv/conn.h
+headers         += galv/repo.h
 headers         += $(call kconf_enabled,GALV_GATE,galv/gate.h)
-headers         += $(call kconf_enabled,GALV_FABRIC,galv/fabric.h)
-headers         += $(call kconf_enabled,GALV_REPO,galv/repo.h)
 headers         += $(call kconf_enabled,GALV_UNIX,galv/unix.h)
+headers         += $(call kconf_enabled,GALV_UNIX,galv/priv/unix.h)
 headers         += $(call kconf_enabled,GALV_BUFF,galv/buffer.h)
 headers         += $(call kconf_enabled,GALV_FRAG,galv/priv/fragment.h)
+headers         += $(call kconf_enabled,GALV_SESS,galv/session.h)
+headers         += $(call kconf_enabled,GALV_SESS,galv/priv/session.h)
 
 subdirs         := lib
 

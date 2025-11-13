@@ -11,8 +11,6 @@
 #include <galv/buffer.h>
 #include <stroll/falloc.h>
 
-struct galv_frag_fabric;
-
 /**
  * @internal
  *
@@ -28,49 +26,19 @@ struct galv_frag_fabric;
  * A galv_frag references a signe galv_buff.
  */
 struct galv_frag {
-	struct stroll_buff        base;
-	struct stroll_slist_node  list;
-	struct galv_buff *        buff;
-	struct galv_frag_fabric * fabric;
+	struct stroll_buff       base;
+	struct stroll_slist_node list;
+	struct galv_buff *       buff;
+	struct stroll_falloc *   alloc;
 };
 
 #define galv_frag_assert_api(_frag) \
 	galv_assert_api(_frag); \
 	galv_assert_api(stroll_buff_capacity(&(_frag)->base)); \
-	galv_assert_api((_frag)->fabric); \
+	galv_assert_api((_frag)->alloc); \
 	galv_assert_api((_frag)->buff); \
 	galv_assert_api(stroll_buff_capacity(&(_frag)->base) <= \
 	                galv_buff_capacity((_frag)->buff))
-
-/**
- * @internal
- *
- * Core network fragment fabric.
- */
-struct galv_frag_fabric {
-	unsigned int         cnt;
-	unsigned int         nr;
-	struct stroll_falloc base;
-};
-
-#define galv_frag_fabric_assert_api(_fabric) \
-	galv_assert_api(_fabric); \
-	galv_assert_api((_fabric)->nr); \
-	galv_assert_api((_fabric)->cnt <= (_fabric)->nr)
-
-extern void
-galv_frag_init_fabric(struct galv_frag_fabric * __restrict fabric,
-                      unsigned int                         nr)
-	__export_public;
-
-static inline
-void
-galv_frag_fini_fabric(struct galv_frag_fabric * __restrict fabric)
-{
-	galv_frag_fabric_assert_api(fabric);
-
-	stroll_falloc_fini(&fabric->base);
-}
 
 static inline
 size_t
@@ -114,9 +82,9 @@ galv_frag_load(struct galv_frag * __restrict fragment,
                struct galv_buff * __restrict buffer);
 
 extern struct galv_frag *
-galv_frag_create(struct galv_frag_fabric * __restrict fabric,
-                 size_t                               capacity,
-                 struct galv_buff * __restrict        buffer);
+galv_frag_create(struct stroll_falloc * __restrict alloc,
+                 size_t                            capacity,
+                 struct galv_buff * __restrict     buffer);
 
 extern void
 galv_frag_destroy(struct galv_frag * __restrict fragment);
@@ -205,6 +173,22 @@ galv_frag_fini_list(struct galv_frag_list * __restrict list)
 {
 	galv_assert_api(list);
 	galv_assert_api(galv_frag_list_empty(list));
+}
+
+/******************************************************************************
+ * Fragment allocator
+ ******************************************************************************/
+
+extern void
+galv_frag_init_alloc(struct stroll_falloc * __restrict alloc, unsigned int nr);
+
+static inline
+void
+galv_frag_fini_alloc(struct stroll_falloc * __restrict alloc)
+{
+	galv_assert_api(alloc);
+
+	stroll_falloc_fini(alloc);
 }
 
 #endif /* _GALV_PRIV_FRAGMENT_H */

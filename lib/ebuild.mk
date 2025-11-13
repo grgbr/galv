@@ -8,14 +8,16 @@
 include ../common.mk
 
 libgalv-objects    := common.o \
-                      $(call kconf_enabled,GALV_UNIX_CONN,conn.o) \
-                      $(call kconf_enabled,GALV_UNIX_CONN,acceptor.o) \
-                      $(call kconf_enabled,GALV_FABRIC,fabric.o) \
-                      $(call kconf_enabled,GALV_REPO,repo.o) \
-                      $(call kconf_enabled,GALV_UNIX_CONN,unix.o) \
+                      accept.o \
+                      adopt.o \
+                      conn.o \
+                      repo.o \
+                      $(call kconf_enabled,GALV_ALLOC,alloc.o) \
+                      $(call kconf_enabled,GALV_GATE,gate.o) \
                       $(call kconf_enabled,GALV_BUFF,buffer.o) \
                       $(call kconf_enabled,GALV_FRAG,fragment.o) \
-                      $(call kconf_enabled,GALV_SESS,session.o)
+                      $(call kconf_enabled,GALV_SESS,session.o) \
+                      $(call kconf_enabled,GALV_UNIX,unix.o)
 
 solibs             := libgalv.so
 libgalv.so-objs    := $(addprefix shared/,$(libgalv-objects))

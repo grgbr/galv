@@ -45,30 +45,30 @@ struct galv_gate {
 	const struct galv_gate_ops * ops;
 };
 
-#define galv_gate_assert_iface_api(_gate) \
+#define galv_gate_assert_api(_gate) \
 	galv_assert_api(_gate); \
 	galv_gate_assert_ops_api((_gate)->ops)
 
 static inline
 int
 galv_gate_track(struct galv_gate * __restrict       gate,
-                const struct galv_conn * __restrict conn)
+                const struct galv_conn * __restrict connection)
 {
-	galv_gate_assert_iface_api(gate);
-	galv_conn_assert_iface_api(conn);
+	galv_gate_assert_api(gate);
+	galv_conn_assert_api(connection);
 
-	return gate->ops->track(gate, conn);
+	return gate->ops->track(gate, connection);
 }
 
 static inline
 void
 galv_gate_untrack(struct galv_gate * __restrict       gate,
-                  const struct galv_conn * __restrict conn)
+                  const struct galv_conn * __restrict connection)
 {
-	galv_gate_assert_iface_api(gate);
-	galv_conn_assert_iface_api(conn);
+	galv_gate_assert_api(gate);
+	galv_conn_assert_api(connection);
 
-	return gate->ops->untrack(gate, conn);
+	return gate->ops->untrack(gate, connection);
 }
 
 static inline
@@ -81,5 +81,9 @@ galv_gate_init(struct galv_gate * __restrict           gate,
 
 	gate->ops = ops;
 }
+
+extern struct galv_gate galv_gate_dummy __export_public;
+
+#define GALV_GATE_DUMMY (&galv_gate_dummy)
 
 #endif /* _GALV_GATE_H */

@@ -10,7 +10,13 @@
 
 #include "galv/unix.h"
 #include "conn.h"
-#include "acceptor.h"
+#include "adopt.h"
+#include "accept.h"
+#include "alloc.h"
+
+#define galv_unix_assert_addr_api(_addr) \
+	galv_assert_api(_addr); \
+	galv_assert_api((_addr)->size >= sizeof(sa_family_t))
 
 #define galv_unix_assert_addr_intern(_addr) \
 	galv_assert_intern(_addr); \
@@ -39,28 +45,21 @@ struct galv_unix_conn {
 #define galv_unix_assert_conn_api(_conn) \
 	galv_assert_api(_conn); \
 	galv_conn_assert_api(&(_conn)->base); \
-	galv_unix_assert_endpt_api(&(_conn)->_endpt)
+	galv_unix_assert_endpt_api(&(_conn)->peer)
 
 #define galv_unix_assert_conn_intern(_conn) \
 	galv_assert_intern(_conn); \
 	galv_conn_assert_intern(&(_conn)->base); \
-	galv_unix_assert_endpt_intern(&(_conn)->_endpt)
+	galv_unix_assert_endpt_intern(&(_conn)->peer)
 
-struct galv_unix_acceptor {
-	struct galv_acceptor  base;
-	struct galv_unix_addr bind_addr;
-};
+#define galv_unix_assert_adopt_api(_adopt) \
+	galv_assert_api(_adopt); \
+	galv_adopt_assert_api(&(_adopt)->base); \
+	galv_assert_api((_adopt)->bind_addr.size > (sizeof(sa_family_t) + 1))
 
-#define galv_unix_assert_acceptor_api(_acceptor) \
-	galv_assert_api(_acceptor); \
-	galv_acceptor_assert_api(&(_acceptor)->base); \
-	galv_assert_api(&(_acceptor)->bind_addr.size > \
-	                (sizeof(sa_family_t) + 1))
-
-#define galv_unix_assert_acceptor_intern(_acceptor) \
-	galv_assert_intern(_acceptor); \
-	galv_acceptor_assert_intern(&(_acceptor)->base); \
-	galv_assert_intern(&(_acceptor)->bind_addr.size > \
-	                   (sizeof(sa_family_t) + 1))
+#define galv_unix_assert_adopt_intern(_adopt) \
+	galv_assert_intern(_adopt); \
+	galv_adopt_assert_intern(&(_adopt)->base); \
+	galv_assert_intern((_adopt)->bind_addr.size > (sizeof(sa_family_t) + 1))
 
 #endif /* _GALV_LIB_UNIX_H */
