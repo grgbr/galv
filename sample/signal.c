@@ -56,7 +56,7 @@ galvsmpl_dispatch_sigchan(struct upoll_worker * work,
 	case SIGQUIT:
 	case SIGTERM:
 		/* Tell caller we were requested to terminate. */
-		galvsmpl_debug("interrupted by signal %s",
+		galvsmpl_debug("interrupted by signal '%s'",
 		               strsignal((int)info.ssi_signo));
 		return -ESHUTDOWN;
 

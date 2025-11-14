@@ -118,11 +118,20 @@ galvsmpl_disc_on_error(struct galv_conn * __restrict   connection __unused,
 	return 0;
 }
 
+static
+void
+galvsmpl_disc_on_closing(struct galv_conn * __restrict   connection,
+                         const struct upoll * __restrict poller)
+{
+	galv_conn_unpoll(connection, poller);
+}
+
 static const struct galv_conn_ops galvsmpl_disc_conn_ops = {
 	.on_may_xfer    = galvsmpl_disc_on_may_xfer,
 	.on_connecting  = galvsmpl_disc_on_connecting,
 	.on_send_closed = galvsmpl_disc_on_send_closed,
 	.on_recv_closed = galvsmpl_disc_on_recv_closed,
+	.on_closing     = galvsmpl_disc_on_closing,
 	.on_error       = galvsmpl_disc_on_error
 };
 
@@ -183,9 +192,12 @@ main(void)
 
 	do {
 		ret = upoll_process(&poll, -1);
-	} while (!ret);
+	} while (!ret || (ret == -EINTR));
+	if (ret == -ESHUTDOWN)
+		ret = 0;
 
-#warning close remaining connections thanks to repo
+	galv_accept_halt(&accept, &poll);
+
 	galvsmpl_close_sigchan(&sigs, &poll);
 
 close_accept:

@@ -24,6 +24,7 @@ struct galv_accept;
 	galv_assert_intern((_ops)->on_connecting); \
 	galv_assert_intern((_ops)->on_send_closed); \
 	galv_assert_intern((_ops)->on_recv_closed); \
+	galv_assert_intern((_ops)->on_closing); \
 	galv_assert_intern((_ops)->on_error)
 
 #define galv_conn_assert_intern(_conn) \

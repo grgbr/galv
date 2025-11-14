@@ -17,9 +17,12 @@ struct galv_accept;
  * Generic connection handling
  ******************************************************************************/
 
-typedef int galv_conn_handle_fn(struct galv_conn * __restrict,
-                                uint32_t,
-                                const struct upoll * __restrict);
+typedef int galv_conn_handle_events_fn(struct galv_conn * __restrict,
+                                       uint32_t,
+                                       const struct upoll * __restrict);
+
+typedef void galv_conn_on_closing_fn(struct galv_conn * __restrict,
+                                     const struct upoll * __restrict);
 
 /*
  * TODO: document state chart.
@@ -29,11 +32,12 @@ typedef int galv_conn_handle_fn(struct galv_conn * __restrict,
  * - SO_ERROR socket options might be useful here (see socket(7)).
  */
 struct galv_conn_ops {
-	galv_conn_handle_fn * on_may_xfer;
-	galv_conn_handle_fn * on_connecting;
-	galv_conn_handle_fn * on_send_closed;
-	galv_conn_handle_fn * on_recv_closed;
-	galv_conn_handle_fn * on_error;
+	galv_conn_handle_events_fn * on_may_xfer;
+	galv_conn_handle_events_fn * on_connecting;
+	galv_conn_handle_events_fn * on_send_closed;
+	galv_conn_handle_events_fn * on_recv_closed;
+	galv_conn_on_closing_fn *    on_closing;
+	galv_conn_handle_events_fn * on_error;
 };
 
 #define galv_conn_assert_ops_api(_ops) \
@@ -42,6 +46,7 @@ struct galv_conn_ops {
 	galv_assert_api((_ops)->on_connecting); \
 	galv_assert_api((_ops)->on_send_closed); \
 	galv_assert_api((_ops)->on_recv_closed); \
+	galv_assert_api((_ops)->on_closing); \
 	galv_assert_api((_ops)->on_error)
 
 enum galv_conn_state {
@@ -452,15 +457,25 @@ galv_conn_complete_close(struct galv_conn * __restrict connection)
 	return ret;
 }
 
+extern int
+galv_conn_close(struct galv_conn * __restrict   connection,
+                const struct upoll * __restrict poller);
+
 /******************************************************************************
  * Generic connection repository
  ******************************************************************************/
 
 #include <galv/repo.h>
 
+#define galv_conn_repo_foreach(_repo, _conn) \
+	galv_repo_foreach_entry(_repo, _conn, repo)
+
+#define galv_conn_repo_foreach_safe(_repo, _conn, _tmp) \
+	galv_repo_foreach_entry_safe(_repo, _conn, repo, _tmp)
+
 static inline
 void
-galv_conn_repo_register(struct galv_repo * __restrict repository,
+galv_repo_register_conn(struct galv_repo * __restrict repository,
                         struct galv_conn * __restrict connection)
 {
 	galv_repo_assert_api(repository);
@@ -471,7 +486,7 @@ galv_conn_repo_register(struct galv_repo * __restrict repository,
 
 static inline
 struct galv_conn *
-galv_conn_repo_pop(struct galv_repo * __restrict repository)
+galv_repo_pop_conn(struct galv_repo * __restrict repository)
 {
 	galv_assert_api(repository);
 
@@ -482,7 +497,7 @@ galv_conn_repo_pop(struct galv_repo * __restrict repository)
 
 static inline
 void
-galv_conn_repo_unregister(struct galv_repo * __restrict repository,
+galv_repo_unregister_conn(struct galv_repo * __restrict repository,
                           struct galv_conn * __restrict connection)
 {
 	galv_repo_assert_api(repository);

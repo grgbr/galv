@@ -16,6 +16,22 @@ galv_accept_from_worker(const struct upoll_worker * __restrict worker)
 	return containerof(worker, struct galv_accept, work);
 }
 
+void
+galv_accept_halt(struct galv_accept * __restrict acceptor,
+                 const struct upoll * __restrict poller)
+{
+	galv_accept_assert_api(acceptor);
+	galv_assert_api(poller);
+
+	struct galv_conn * conn;
+	struct galv_conn * tmp;
+
+	galv_conn_repo_foreach_safe(acceptor->repo, conn, tmp)
+		galv_conn_close(conn, poller);
+
+	galv_debug("acceptor: halted");
+}
+
 static
 int
 galv_accept_on_conn_request(struct galv_accept * __restrict acceptor,
@@ -60,7 +76,7 @@ galv_accept_on_conn_request(struct galv_accept * __restrict acceptor,
 		return 0;
 	}
 
-	galv_conn_repo_register(acceptor->repo, conn);
+	galv_repo_register_conn(acceptor->repo, conn);
 
 	return 0;
 }
@@ -76,7 +92,7 @@ galv_accept_on_conn_term(struct galv_accept * __restrict acceptor,
 
 	int ret;
 
-	galv_conn_repo_unregister(acceptor->repo, connection);
+	galv_repo_unregister_conn(acceptor->repo, connection);
 
 	ret = acceptor->ops->on_conn_term(acceptor, connection, poller);
 

@@ -40,6 +40,12 @@ struct galv_repo {
 		.elems = STROLL_DLIST_INIT((_repo).elems), \
 	}
 
+#define galv_repo_foreach_entry(_repo, _entry, _member) \
+	stroll_dlist_foreach_entry(&(_repo)->elems, _entry, _member)
+
+#define galv_repo_foreach_entry_safe(_repo, _entry, _member, _tmp) \
+	stroll_dlist_foreach_entry_safe(&(_repo)->elems, _entry, _member, _tmp)
+
 static inline
 unsigned int
 galv_repo_count(const struct galv_repo * __restrict repository)

@@ -128,7 +128,7 @@ galv_unix_adopt_destroy_conn(const struct galv_adopt * __restrict adopter,
 	                                 connection)->peer.cred;
 	int            ret;
 
-	ret = galv_conn_complete_close(connection);
+	ret = etux_sock_close(connection->fd);
 	stroll_free(galv_adopt_allocator(adopter), connection);
 	if (!ret || (ret == -EINTR)) {
 		galv_debug("unix: connection destroyed [pid:%d, uid:%d]",

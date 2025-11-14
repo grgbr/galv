@@ -25,6 +25,11 @@ struct galv_accept {
 	int                            conn_flags;
 };
 
+extern void
+galv_accept_halt(struct galv_accept * __restrict acceptor,
+                 const struct upoll * __restrict poller)
+	__export_public;
+
 extern int
 galv_accept_open(struct galv_accept * __restrict         acceptor,
                  struct galv_repo * __restrict           repository,
