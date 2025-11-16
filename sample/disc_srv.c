@@ -40,11 +40,12 @@ galvsmpl_disc_on_may_xfer(struct galv_conn * __restrict   connection,
 	switch (ret) {
 	case -EAGAIN:
 		galv_conn_watch(connection, EPOLLIN);
+		galv_conn_apply_watch(connection, poller);
 		ret = 0;
 		break;
 
 	case -ECONNREFUSED:
-		ret = galv_conn_on_recv_closed(connection, events, poller);
+		ret = galv_conn_on_recv_shut(connection, events, poller);
 		break;
 
 	case -EINTR:
@@ -61,13 +62,13 @@ galvsmpl_disc_on_may_xfer(struct galv_conn * __restrict   connection,
 
 static
 int
-galvsmpl_disc_on_connecting(struct galv_conn * __restrict   connection,
-                            uint32_t                        events,
-                            const struct upoll * __restrict poller)
+galvsmpl_disc_on_connect(struct galv_conn * __restrict   connection,
+                         uint32_t                        events __unused,
+                         const struct upoll * __restrict poller)
 {
 	int err;
 
-	err = galv_conn_poll(connection, poller, events, NULL);
+	err = galv_conn_poll(connection, poller, EPOLLIN, NULL);
 	if (!err) {
 		galv_conn_switch_state(connection, GALV_CONN_ESTABLISHED_STATE);
 		galvsmpl_debug("connection established");
@@ -82,29 +83,36 @@ galvsmpl_disc_on_connecting(struct galv_conn * __restrict   connection,
 
 static
 int
-galvsmpl_disc_on_send_closed(struct galv_conn * __restrict   connection,
-                             uint32_t                        events,
-                             const struct upoll * __restrict poller)
+galvsmpl_disc_on_send_shut(struct galv_conn * __restrict   connection,
+                           uint32_t                        events __unused,
+                           const struct upoll * __restrict poller)
 {
-	galvsmpl_debug("connection transmit end shut down: flushing...");
+	galvsmpl_debug("connection transmit end shut down: closing...");
 
-	if (events & EPOLLIN)
-		return galvsmpl_disc_on_may_xfer(connection, events, poller);
-
-	return 0;
+	return galv_conn_close(connection, poller);
 }
 
 static
 int
-galvsmpl_disc_on_recv_closed(struct galv_conn * __restrict   connection,
-                             uint32_t                        events __unused,
-                             const struct upoll * __restrict poller __unused)
+galvsmpl_disc_on_recv_shut(struct galv_conn * __restrict   connection,
+                           uint32_t                        events __unused,
+                           const struct upoll * __restrict poller)
 {
 	galvsmpl_debug("connection receive end shut down: closing...");
 
-	galv_conn_launch_close(connection);
+	return galv_conn_close(connection, poller);
+}
 
-	return 0;
+static
+void
+galvsmpl_disc_close(struct galv_conn * __restrict   connection,
+                    const struct upoll * __restrict poller)
+{
+	/*
+	 * Unregister from poller since we registered at connect time, see
+	 * galvsmpl_disc_on_connect().
+	 */
+	galv_conn_unpoll(connection, poller);
 }
 
 static
@@ -118,22 +126,61 @@ galvsmpl_disc_on_error(struct galv_conn * __restrict   connection __unused,
 	return 0;
 }
 
-static
-void
-galvsmpl_disc_on_closing(struct galv_conn * __restrict   connection,
-                         const struct upoll * __restrict poller)
-{
-	galv_conn_unpoll(connection, poller);
-}
-
 static const struct galv_conn_ops galvsmpl_disc_conn_ops = {
-	.on_may_xfer    = galvsmpl_disc_on_may_xfer,
-	.on_connecting  = galvsmpl_disc_on_connecting,
-	.on_send_closed = galvsmpl_disc_on_send_closed,
-	.on_recv_closed = galvsmpl_disc_on_recv_closed,
-	.on_closing     = galvsmpl_disc_on_closing,
-	.on_error       = galvsmpl_disc_on_error
+	.on_may_xfer  = galvsmpl_disc_on_may_xfer,
+	.on_connect   = galvsmpl_disc_on_connect,
+	.on_send_shut = galvsmpl_disc_on_send_shut,
+	.on_recv_shut = galvsmpl_disc_on_recv_shut,
+	.halt         = galv_conn_close,
+	.close        = galvsmpl_disc_close,
+	.on_error     = galvsmpl_disc_on_error
 };
+
+static
+int
+galvsmpl_loop(struct galv_repo * __restrict   repository,
+              struct galv_accept * __restrict acceptor,
+              struct upoll * __restrict       poller)
+{
+	struct galvsmpl_sigchan sigs;
+	int                     ret;
+	int                     err;
+
+	ret = galvsmpl_open_sigchan(&sigs, poller);
+	if (ret)
+		return ret;
+
+	do {
+		ret = upoll_process(poller, -1);
+	} while (!ret || (ret == -EINTR));
+	switch (ret) {
+	case -ESHUTDOWN:
+	case -EINTR:
+		ret = 0;
+		break;
+	}
+
+	galv_accept_suspend(acceptor, poller);
+	galv_conn_repo_halt(repository, poller);
+	err = 0;
+	while (!galv_repo_empty(repository)) {
+		err = upoll_process(poller, -1);
+		if (err)
+			break;
+	}
+	if (err == -ESHUTDOWN)
+		err = -EINTR;
+	if (!ret)
+		ret = err;
+
+	galv_conn_repo_close(repository, poller);
+	galvsmpl_close_sigchan(&sigs, poller);
+
+	if (ret)
+		galvsmpl_pdebug(-ret, "failed to gracefully halt");
+
+	return ret;
+}
 
 int
 main(void)
@@ -144,7 +191,6 @@ main(void)
 	struct galv_repo        repo = GALV_REPO_INIT(repo,
 	                                              GALVSMPL_DISC_CONN_NR);
 	struct galv_accept      accept;
-	struct galvsmpl_sigchan sigs;
 	int                     ret;
 
 	galvsmpl_init();
@@ -186,22 +232,10 @@ main(void)
 		goto close_poll;
 	}
 
-	ret = galvsmpl_open_sigchan(&sigs, &poll);
-	if (ret)
-		goto close_accept;
+	ret = galvsmpl_loop(&repo, &accept, &poll);
 
-	do {
-		ret = upoll_process(&poll, -1);
-	} while (!ret || (ret == -EINTR));
-	if (ret == -ESHUTDOWN)
-		ret = 0;
-
-	galv_accept_halt(&accept, &poll);
-
-	galvsmpl_close_sigchan(&sigs, &poll);
-
-close_accept:
 	galv_accept_close(&accept, &poll);
+
 close_poll:
 	upoll_close(&poll);
 close_adopt:
@@ -211,6 +245,7 @@ close_adopt:
 		galv_unix_adopt_close(&adopt);
 destroy_alloc:
 	stroll_alloc_destroy(alloc);
+	galv_repo_fini(&repo);
 out:
 	galvsmpl_fini();
 

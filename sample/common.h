@@ -20,6 +20,13 @@ extern struct elog_stdio galvsmpl_log;
 #define galvsmpl_debug(_format, ...) \
 	elog_debug(&galvsmpl_log, _format ".", ## __VA_ARGS__)
 
+#define galvsmpl_pdebug(_err, _format, ...) \
+	elog_debug(&galvsmpl_log, \
+	           _format ": %s (%d).", \
+	           ## __VA_ARGS__, \
+	           strerror(_err), \
+	           _err)
+
 extern void
 galvsmpl_init(void);
 

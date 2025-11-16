@@ -16,6 +16,33 @@ galv_accept_from_worker(const struct upoll_worker * __restrict worker)
 	return containerof(worker, struct galv_accept, work);
 }
 
+int
+galv_accept_resume(struct galv_accept * __restrict acceptor,
+                    const struct upoll * __restrict poller)
+{
+	galv_accept_assert_api(acceptor);
+	galv_assert_api(poller);
+	galv_assert_api(acceptor->state == GALV_ACCEPT_SUSPENDED_STATE);
+
+	acceptor->state = GALV_ACCEPT_RUNNING_STATE;
+	return upoll_register(poller,
+	                      galv_adopt_fd(acceptor->adopt),
+	                      EPOLLIN,
+	                      &acceptor->work);
+}
+
+void
+galv_accept_suspend(struct galv_accept * __restrict acceptor,
+                    const struct upoll * __restrict poller)
+{
+	galv_accept_assert_api(acceptor);
+	galv_assert_api(poller);
+	galv_assert_api(acceptor->state != GALV_ACCEPT_SUSPENDED_STATE);
+
+	acceptor->state = GALV_ACCEPT_SUSPENDED_STATE;
+	upoll_unregister(poller, galv_adopt_fd(acceptor->adopt));
+}
+
 void
 galv_accept_halt(struct galv_accept * __restrict acceptor,
                  const struct upoll * __restrict poller)
@@ -26,10 +53,13 @@ galv_accept_halt(struct galv_accept * __restrict acceptor,
 	struct galv_conn * conn;
 	struct galv_conn * tmp;
 
-	galv_conn_repo_foreach_safe(acceptor->repo, conn, tmp)
-		galv_conn_close(conn, poller);
+	if (acceptor->state == GALV_ACCEPT_RUNNING_STATE)
+		galv_accept_suspend(acceptor, poller);
 
-	galv_debug("acceptor: halted");
+	galv_conn_repo_foreach_safe(acceptor->repo, conn, tmp) {
+		if (galv_conn_acceptor(conn) == acceptor)
+			galv_conn_close(conn, poller);
+	}
 }
 
 static
@@ -38,47 +68,22 @@ galv_accept_on_conn_request(struct galv_accept * __restrict acceptor,
                             uint32_t                        events,
                             const struct upoll * __restrict poller)
 {
-	galv_accept_assert_api(acceptor);
-	galv_assert_api(events & (uint32_t)EPOLLIN);
-	galv_assert_api(!(events & ~((uint32_t)(EPOLLIN | EPOLLERR))));
-	galv_assert_api(poller);
+	galv_accept_assert_intern(acceptor);
+	galv_assert_intern(acceptor->state == GALV_ACCEPT_RUNNING_STATE);
+	galv_assert_intern(events & (uint32_t)EPOLLIN);
+	galv_assert_intern(!(events & ~((uint32_t)(EPOLLIN | EPOLLERR))));
+	galv_assert_intern(poller);
 
 	struct galv_conn * conn;
 
-	if (galv_repo_full(acceptor->repo)) {
-		galv_ratelim_info("acceptor: connection request denied",
-		                  ": maximum number of connections reached");
-		upoll_disable_watch(&acceptor->work, EPOLLIN);
-		return -EPERM;
-	}
-
 	conn = acceptor->ops->on_conn_request(acceptor, events, poller);
-	if (!conn) {
-		int err = errno;
-
-		galv_assert_api(err);
-		switch (err) {
-		case EAGAIN: /* All queued connection requests processed. */
-			upoll_enable_watch(&acceptor->work, EPOLLIN);
-			return -EAGAIN;
-
-		case EINTR:  /* Interrupted by a signal */
-		case ENOMEM: /* No more memory available. */
-		case EMFILE: /* Too many open files by process. */
-		case ENFILE: /* Too many open files in system. */
-		case ENOSPC: /* Too many epoll file descriptors registered. */
-			return -err;
-
-		default:
-			break;
-		}
-
+	if (conn) {
+		galv_conn_repo_register(acceptor->repo, conn);
 		return 0;
 	}
 
-	galv_repo_register_conn(acceptor->repo, conn);
-
-	return 0;
+	galv_assert_api(errno);
+	return -errno;
 }
 
 int
@@ -92,12 +97,15 @@ galv_accept_on_conn_term(struct galv_accept * __restrict acceptor,
 
 	int ret;
 
-	galv_repo_unregister_conn(acceptor->repo, connection);
+	galv_conn_repo_unregister(acceptor->repo, connection);
 
 	ret = acceptor->ops->on_conn_term(acceptor, connection, poller);
 
 	upoll_enable_watch(&acceptor->work, EPOLLIN);
-	upoll_apply(poller, galv_adopt_fd(acceptor->adopt), &acceptor->work);
+	if (acceptor->state == GALV_ACCEPT_RUNNING_STATE)
+		upoll_apply(poller,
+		            galv_adopt_fd(acceptor->adopt),
+		            &acceptor->work);
 
 	return ret;
 }
@@ -114,10 +122,10 @@ galv_accept_dispatch(struct upoll_worker * worker,
 	galv_assert_intern(poller);
 
 	struct galv_accept * acc;
-	int                  ret;
 
 	acc = galv_accept_from_worker(worker);
 	galv_accept_assert_intern(acc);
+	galv_assert_intern(acc->state == GALV_ACCEPT_RUNNING_STATE);
 
 	if (events & EPOLLERR) {
 		/*
@@ -131,13 +139,41 @@ galv_accept_dispatch(struct upoll_worker * worker,
 	}
 
 	/* events & EPOLLIN is true. */
-	do {
+	while (true) {
+		int ret;
+
+		if (galv_repo_full(acc->repo)) {
+			galv_ratelim_info(
+				"acceptor: connection request denied",
+				": maximum number of connections reached");
+
+			upoll_disable_watch(&acc->work, EPOLLIN);
+			upoll_apply(poller,
+			            galv_adopt_fd(acc->adopt),
+			            &acc->work);
+
+			return 0;
+		}
+
 		ret = galv_accept_on_conn_request(acc, events, poller);
-	} while (!ret);
+		switch (ret) {
+		case -EAGAIN: /* All queued connection requests processed. */
+			upoll_enable_watch(&acc->work, EPOLLIN);
+			upoll_apply(poller,
+			            galv_adopt_fd(acc->adopt),
+			            &acc->work);
+			return 0;
 
-	upoll_apply(poller, galv_adopt_fd(acc->adopt), &acc->work);
+		case -EINTR:  /* Interrupted by a signal */
+		case -ENOMEM: /* No more memory available. */
+		case -EMFILE: /* Too many open files by process. */
+		case -ENFILE: /* Too many open files in system. */
+		case -ENOSPC: /* Too many epoll file descriptors registered. */
+			return ret;
+		}
+	}
 
-	return (ret != -EAGAIN) ? ret : 0;
+	unreachable();
 }
 
 static
@@ -146,10 +182,11 @@ galv_accept_handle_conn_request_event(struct galv_accept * __restrict acceptor,
                                       uint32_t                        events,
                                       const struct upoll * __restrict poller)
 {
-	galv_accept_assert_api(acceptor);
-	galv_assert_api(events & (uint32_t)EPOLLIN);
-	galv_assert_api(!(events & ~((uint32_t)(EPOLLIN | EPOLLERR))));
-	galv_assert_api(poller);
+	galv_accept_assert_intern(acceptor);
+	galv_assert_intern(acceptor->state == GALV_ACCEPT_RUNNING_STATE);
+	galv_assert_intern(events & (uint32_t)EPOLLIN);
+	galv_assert_intern(!(events & ~((uint32_t)(EPOLLIN | EPOLLERR))));
+	galv_assert_intern(poller);
 
 	struct galv_conn * conn;
 	int                err;
@@ -161,7 +198,7 @@ galv_accept_handle_conn_request_event(struct galv_accept * __restrict acceptor,
 	if (!conn)
 		return NULL;
 
-	err = galv_conn_on_connecting(conn, events, poller);
+	err = galv_conn_on_connect(conn, events, poller);
 	if (err)
 		goto destroy;
 
@@ -181,9 +218,9 @@ galv_accept_handle_conn_term_event(
 	struct galv_conn * __restrict   connection,
 	const struct upoll * __restrict poller __unused)
 {
-	galv_accept_assert_api(acceptor);
-	galv_conn_assert_api(connection);
-	galv_assert_api(poller);
+	galv_accept_assert_intern(acceptor);
+	galv_conn_assert_intern(connection);
+	galv_assert_intern(poller);
 
 	return galv_adopt_destroy_conn(acceptor->adopt, connection);
 }
@@ -223,6 +260,7 @@ galv_accept_open(struct galv_accept * __restrict         acceptor,
 	acceptor->adopt = adopter;
 	acceptor->conn_ops = operations;
 	acceptor->conn_flags = SOCK_NONBLOCK | flags;
+	acceptor->state = GALV_ACCEPT_RUNNING_STATE;
 
 	return upoll_register(poller, fd, EPOLLIN, &acceptor->work);
 }
@@ -234,5 +272,6 @@ galv_accept_close(const struct galv_accept * __restrict acceptor,
 	galv_accept_assert_api(acceptor);
 	galv_assert_api(poller);
 
-	upoll_unregister(poller, galv_adopt_fd(acceptor->adopt));
+	if (acceptor->state != GALV_ACCEPT_SUSPENDED_STATE)
+		upoll_unregister(poller, galv_adopt_fd(acceptor->adopt));
 }

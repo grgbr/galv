@@ -16,6 +16,12 @@ struct galv_conn_repo;
 struct galv_adopt;
 struct galv_conn;
 
+enum galv_accept_state {
+	GALV_ACCEPT_RUNNING_STATE   = 0,
+	GALV_ACCEPT_SUSPENDED_STATE,
+	GALV_ACCEPT_STATE_NR
+};
+
 struct galv_accept {
 	struct upoll_worker            work;
 	const struct galv_accept_ops * ops;
@@ -23,7 +29,18 @@ struct galv_accept {
 	struct galv_adopt *            adopt;
 	const struct galv_conn_ops *   conn_ops;
 	int                            conn_flags;
+	enum galv_accept_state         state;
 };
+
+extern int
+galv_accept_resume(struct galv_accept * __restrict acceptor,
+                    const struct upoll * __restrict poller)
+	__export_public;
+
+extern void
+galv_accept_suspend(struct galv_accept * __restrict acceptor,
+                    const struct upoll * __restrict poller)
+	__export_public;
 
 extern void
 galv_accept_halt(struct galv_accept * __restrict acceptor,

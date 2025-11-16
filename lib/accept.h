@@ -47,7 +47,9 @@ struct galv_accept_ops {
 	galv_conn_assert_ops_api((_accept)->conn_ops); \
 	galv_assert_api(!((_accept)->conn_flags & \
 	                  ~(SOCK_NONBLOCK | SOCK_CLOEXEC))); \
-	galv_assert_api((_accept)->conn_flags & SOCK_NONBLOCK)
+	galv_assert_api((_accept)->conn_flags & SOCK_NONBLOCK); \
+	galv_assert_api((_accept)->state >= 0); \
+	galv_assert_api((_accept)->state < GALV_ACCEPT_STATE_NR)
 
 #define galv_accept_assert_intern(_accept) \
 	galv_assert_intern(_accept); \
@@ -58,7 +60,9 @@ struct galv_accept_ops {
 	galv_conn_assert_ops_intern((_accept)->conn_ops); \
 	galv_assert_intern(!((_accept)->conn_flags & \
 	                     ~(SOCK_NONBLOCK | SOCK_CLOEXEC))); \
-	galv_assert_intern((_accept)->conn_flags & SOCK_NONBLOCK)
+	galv_assert_intern((_accept)->conn_flags & SOCK_NONBLOCK); \
+	galv_assert_intern((_accept)->state >= 0); \
+	galv_assert_intern((_accept)->state < GALV_ACCEPT_STATE_NR)
 
 static inline
 struct galv_adopt *

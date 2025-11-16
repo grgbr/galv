@@ -14,7 +14,7 @@ smpl-ldflags := \
 	-lgalv
 
 builtins               := builtin_smpl.a
-builtin_smpl.a-objs    := signal.o
+builtin_smpl.a-objs    := common.o
 builtin_smpl.a-cflags  := $(common-cflags)
 
 bins                   := $(call kconf_enabled,GALV_SMPL_SESS,galv-smpl-sess)
