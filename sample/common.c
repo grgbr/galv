@@ -80,6 +80,7 @@ galvsmpl_open_sigchan(struct galvsmpl_sigchan * __restrict channel,
 	galvsmpl_assert(poller);
 
 	sigset_t     msk = *usig_empty_msk;
+	sigset_t     blk = *usig_full_msk;
 	int          err;
 	const char * msg;
 
@@ -89,7 +90,6 @@ galvsmpl_open_sigchan(struct galvsmpl_sigchan * __restrict channel,
 	usig_addset(&msk, SIGTERM);
 	usig_addset(&msk, SIGUSR1);
 	usig_addset(&msk, SIGUSR2);
-
 	channel->fd = usig_open_fd(&msk, SFD_NONBLOCK | SFD_CLOEXEC);
 	if (channel->fd < 0) {
 		err = channel->fd;
@@ -104,7 +104,12 @@ galvsmpl_open_sigchan(struct galvsmpl_sigchan * __restrict channel,
 		goto close;
 	}
 
-	usig_procmask(SIG_SETMASK, usig_full_msk, NULL);
+	usig_delset(&blk, SIGCONT);
+	usig_delset(&blk, SIGTSTP);
+	usig_delset(&blk, SIGTRAP);
+	usig_delset(&blk, SIGTTIN);
+	usig_delset(&blk, SIGTTOU);
+	usig_procmask(SIG_SETMASK, &blk, NULL);
 
 	galvsmpl_debug("signal handlers registered.");
 

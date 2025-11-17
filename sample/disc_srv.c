@@ -30,7 +30,13 @@ galvsmpl_disc_on_may_xfer(struct galv_conn * __restrict   connection,
 
 	/* Restrict to GALVSMPL_DISC_BULK_NR receive operations in a row. */
 	while (cnt--) {
-		ret = galv_conn_recv(connection, buff, sizeof(buff), 0);
+		/*
+		 * For TCP stream sockets (only), give MSG_TRUNC to request
+		 * discarding of received bytes rather than passing data back in
+		 * the `buff' supplied buffer.
+		 * See tcp(7).
+		 */
+		ret = galv_conn_recv(connection, buff, sizeof(buff), MSG_TRUNC);
 		galvsmpl_assert(ret);
 		if (ret != sizeof(buff))
 			break;
@@ -53,10 +59,10 @@ galvsmpl_disc_on_may_xfer(struct galv_conn * __restrict   connection,
 	else if (ret == -ECONNREFUSED)
 		return galv_conn_on_recv_shut(connection, events, poller);
 	else if ((ret == -EINTR) || (ret == -ENOMEM))
-		return ret;
+		return (int)ret;
 
 	/* Unexpected receive failure. */
-	galvsmpl_perr(-ret, "unexpected receive failure");
+	galvsmpl_perr(-(int)ret, "unexpected receive failure");
 
 	return 0;
 
@@ -94,7 +100,7 @@ galvsmpl_disc_on_send_shut(struct galv_conn * __restrict   connection,
                            uint32_t                        events __unused,
                            const struct upoll * __restrict poller)
 {
-	galvsmpl_debug("connection transmit end shut down: closing...");
+	galvsmpl_debug("connection transmit end shut down: closing..");
 
 	return galv_conn_close(connection, poller);
 }
@@ -105,7 +111,17 @@ galvsmpl_disc_on_recv_shut(struct galv_conn * __restrict   connection,
                            uint32_t                        events __unused,
                            const struct upoll * __restrict poller)
 {
-	galvsmpl_debug("connection receive end shut down: closing...");
+	galvsmpl_debug("connection receive end shut down: closing..");
+
+	return galv_conn_close(connection, poller);
+}
+
+static
+int
+galvsmpl_disc_halt(struct galv_conn *   connection,
+                   const struct upoll * poller)
+{
+	galvsmpl_debug("connection halt requested: closing..");
 
 	return galv_conn_close(connection, poller);
 }
@@ -171,6 +187,10 @@ galvsmpl_loop(struct galv_repo * __restrict   repository,
 	galv_conn_repo_halt(repository, poller);
 	err = 0;
 	while (!galv_repo_empty(repository)) {
+		/*
+		 * To be safe, a timer should be armed here to prevent from
+		 * blocking into epoll_wait() forever...
+		 */
 		err = upoll_process(poller, -1);
 		if (err)
 			break;

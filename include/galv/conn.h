@@ -141,7 +141,6 @@ galv_conn_watched(const struct galv_conn * __restrict connection)
 	galv_conn_assert_api(connection);
 	galv_assert_api(connection->fd >= 0);
 	galv_assert_api(connection->state != GALV_CONN_CLOSED_STATE);
-	galv_assert_api(connection->state != GALV_CONN_CLOSING_STATE);
 
 	return upoll_watched_events(&connection->work);
 }
@@ -154,7 +153,6 @@ galv_conn_watch(struct galv_conn * __restrict connection,
 	galv_conn_assert_api(connection);
 	galv_assert_api(connection->fd >= 0);
 	galv_assert_api(connection->state != GALV_CONN_CLOSED_STATE);
-	galv_assert_api(connection->state != GALV_CONN_CLOSING_STATE);
 
 	upoll_enable_watch(&connection->work, events);
 }
@@ -167,7 +165,6 @@ galv_conn_unwatch(struct galv_conn * __restrict connection,
 	galv_conn_assert_api(connection);
 	galv_assert_api(connection->fd >= 0);
 	galv_assert_api(connection->state != GALV_CONN_CLOSED_STATE);
-	galv_assert_api(connection->state != GALV_CONN_CLOSING_STATE);
 
 	upoll_disable_watch(&connection->work, events);
 }

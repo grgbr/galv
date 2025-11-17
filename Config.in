@@ -107,6 +107,14 @@ config GALV_SMPL_DISC_SRV
 	help
 	  Build Galv library with discard service usage sample code.
 
+config GALV_SMPL_ECHO_SRV
+	bool "Echo server sample code"
+	depends on GALV_SMPL
+	select GALV_UNIX
+	default n
+	help
+	  Build Galv library with echo service usage sample code.
+
 config GALV_SMPL_SESS
 	bool "Session sample code"
 	depends on GALV_SMPL

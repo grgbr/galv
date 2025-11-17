@@ -31,4 +31,12 @@ galv-smpl-disc-srv-cflags  := $(common-cflags)
 galv-smpl-disc-srv-ldflags := $(smpl-ldflags)
 galv-smpl-disc-srv-pkgconf := libelog libutils
 
+bins                       := $(call kconf_enabled,GALV_SMPL_ECHO_SRV, \
+                                                   galv-smpl-echo-srv)
+galv-smpl-echo-srv-objs    := $(call kconf_enabled,GALV_SMPL_ECHO_SRV, \
+                                                   echo_srv.o)
+galv-smpl-echo-srv-cflags  := $(common-cflags)
+galv-smpl-echo-srv-ldflags := $(smpl-ldflags)
+galv-smpl-echo-srv-pkgconf := libelog libutils
+
 # ex: filetype=make :
