@@ -99,8 +99,8 @@ config GALV_SMPL
 	help
 	  Build Galv library with usage sample code.
 
-config GALV_SMPL_DISC
-	bool "Discard sample code"
+config GALV_SMPL_DISC_SRV
+	bool "Discard server sample code"
 	depends on GALV_SMPL
 	select GALV_UNIX
 	default n

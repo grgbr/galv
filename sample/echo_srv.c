@@ -10,66 +10,160 @@
 #include "galv/accept.h"
 #include <stroll/alloc.h>
 
-#define GALVSMPL_DISC_PATH           "sock"
-#define GALVSMPL_DISC_BACKLOG        16
-#define GALVSMPL_DISC_CONN_NR        (32U)
-#define GALVSMPL_DISC_PERPID_CONN_NR (2U)
-#define GALVSMPL_DISC_PERUID_CONN_NR (16U)
-#define GALVSMPL_DISC_BULK_NR        (4U)
+#define GALVSMPL_ECHO_PATH           "sock"
+#define GALVSMPL_ECHO_BACKLOG        16
+#define GALVSMPL_ECHO_CONN_NR        (32U)
+#define GALVSMPL_ECHO_PERPID_CONN_NR (2U)
+#define GALVSMPL_ECHO_PERUID_CONN_NR (16U)
+#define GALVSMPL_ECHO_BULK_NR        (4U)
+
+struct galvsmpl_echo {
+	struct galv_conn * conn;
+	size_t             busy;
+	char               buff[1024];
+};
 
 static
-int
-galvsmpl_disc_on_may_xfer(struct galv_conn * __restrict   connection,
-                          uint32_t                        events,
-                          const struct upoll * __restrict poller)
+struct galvsmpl_echo *
+galvsmpl_echo_from_conn(const struct galv_conn * __restrict connection)
 {
-	unsigned int cnt = GALVSMPL_DISC_BULK_NR;
-	static char  buff[1024];
-	ssize_t      ret;
-	size_t       bytes = 0;
-
-	/* Restrict to GALVSMPL_DISC_BULK_NR receive operations in a row. */
-	while (cnt--) {
-		ret = galv_conn_recv(connection, buff, sizeof(buff), 0);
-		galvsmpl_assert(ret);
-		if (ret != sizeof(buff))
-			break;
-		bytes += sizeof(buff);
-	}
-
-	galvsmpl_assert(ret);
-	if (ret > 0) {
-		galvsmpl_debug("%zu bytes discarded", bytes + (size_t)ret);
-		if (bytes % sizeof(buff))
-			goto eagain;
-
-		/* Still some more data left to be consummed. */
-		return 0;
-	}
-	else if (ret == -EAGAIN) {
-		galvsmpl_debug("%zu bytes discarded", bytes);
-		goto eagain;
-	}
-	else if (ret == -ECONNREFUSED)
-		return galv_conn_on_recv_shut(connection, events, poller);
-	else if ((ret == -EINTR) || (ret == -ENOMEM))
-		return ret;
-
-	/* Unexpected receive failure. */
-	galvsmpl_perr(-ret, "unexpected receive failure");
-
-	return 0;
-
-eagain:
-	galv_conn_watch(connection, EPOLLIN);
-	galv_conn_apply_watch(connection, poller);
-
-	return 0;
+	return (struct galvsmpl_echo *)galv_conn_context(connection);
 }
 
 static
 int
-galvsmpl_disc_on_connect(struct galv_conn * __restrict   connection,
+galvsmpl_echo_recv(struct galv_echo * __restrict echo)
+{
+	ssize_t ret = 0;
+
+	if (echo->busy < sizeof(buff)) {
+		size_t  sz = sizeof(echo->buff) - echo->busy;
+
+		ret = galv_conn_recv(echo->conn, echo->buff, sz, 0);
+		galvsmpl_assert(ret);
+		if (ret > 0) {
+			echo->busy += (size_t)ret;
+			if ((size_t)ret < sz)
+				ret = -EAGAIN;
+			else
+				ret = 0;
+		}
+	}
+
+	return ret;
+}
+
+static
+int
+galvsmpl_echo_send(struct galv_echo * __restrict echo)
+{
+	ssize_t ret = 0;
+
+	if (echo->busy) {
+		size_t sz = echo->busy;
+
+		ret = galv_conn_send(echo->conn, echo->buff, sz, MSG_NOSIGNAL);
+		galvsmpl_assert(ret);
+		if (ret > 0) {
+			echo->busy -= (size_t)ret;
+			if ((size_t)ret < sz) {
+				memmove(echo->buff,
+				        &echo->buff[ret],
+				        sz - (size_t)ret);
+				ret = -EAGAIN;
+			}
+			else
+				ret = 0;
+		}
+	}
+
+	return ret;
+}
+
+static
+int
+galvsmpl_echo_on_may_xfer(struct galv_conn * __restrict   connection,
+                          uint32_t                        events,
+                          const struct upoll * __restrict poller)
+{
+	struct galvsmpl_echo * echo;
+	unsigned int           cnt = GALVSMPL_ECHO_BULK_NR;
+	bool                   recvon = true;
+	bool                   sendon = true;
+	ssize_t                ret;
+
+
+	if (events & EPOLLOUT)
+		galv_conn_unwatch(echo->conn, EPOLLOUT);
+
+	if (!(events & EPOLLIN))
+		FLUSH OUTPUT;
+
+	/* Restrict to GALVSMPL_ECHO_BULK_NR echo operations in a row. */
+	do {
+		if (recvon) {
+			ret = galvsmpl_echo_recv(echo);
+			if (ret < 0) {
+				if (ret == -EAGAIN) {
+					recvon = false;
+					galv_conn_watch(connection, EPOLLIN);
+				}
+				else if (ret == -ECONNREFUSED)
+					return galv_conn_on_recv_shut(
+						connection,
+						events,
+						poller);
+				else if ((ret == -EINTR) || (ret == -ENOMEM))
+					goto apply;
+				else {
+					recvon = false;
+					galvsmpl_perr(
+						-ret,
+						"unexpected receive failure");
+				}
+
+				ret = 0;
+			}
+		}
+
+		if (sendon && echo->busy) {
+			ret = galvsmpl_echo_send(echo);
+			if (ret < 0) {
+				if (ret == -EAGAIN) {
+					sendon = false;
+					galv_conn_watch(conn, EPOLLOUT);
+				}
+				else if ((ret == -EPIPE) ||
+				         (ret == -ECONNRESET))
+					return galv_conn_on_send_shut(
+						connection,
+						events,
+						poller);
+				else if ((ret == -EINTR) || (ret == -ENOMEM))
+					goto apply;
+				else {
+					sendon = false;
+					galvsmpl_perr(
+						-ret,
+						"unexpected emit failure");
+				}
+
+				ret = 0;
+			}
+		}
+	} while ((recvon || sendon) && --cnt);
+
+	galvsmpl_assert(!ret);
+
+apply:
+	galv_conn_apply_watch(connection, poller);
+
+	return (int)ret;
+}
+
+static
+int
+galvsmpl_echo_on_connect(struct galv_conn * __restrict   connection,
                          uint32_t                        events __unused,
                          const struct upoll * __restrict poller)
 {
@@ -90,7 +184,7 @@ galvsmpl_disc_on_connect(struct galv_conn * __restrict   connection,
 
 static
 int
-galvsmpl_disc_on_send_shut(struct galv_conn * __restrict   connection,
+galvsmpl_echo_on_send_shut(struct galv_conn * __restrict   connection,
                            uint32_t                        events __unused,
                            const struct upoll * __restrict poller)
 {
@@ -101,7 +195,7 @@ galvsmpl_disc_on_send_shut(struct galv_conn * __restrict   connection,
 
 static
 int
-galvsmpl_disc_on_recv_shut(struct galv_conn * __restrict   connection,
+galvsmpl_echo_on_recv_shut(struct galv_conn * __restrict   connection,
                            uint32_t                        events __unused,
                            const struct upoll * __restrict poller)
 {
@@ -112,19 +206,19 @@ galvsmpl_disc_on_recv_shut(struct galv_conn * __restrict   connection,
 
 static
 void
-galvsmpl_disc_close(struct galv_conn * __restrict   connection,
+galvsmpl_echo_close(struct galv_conn * __restrict   connection,
                     const struct upoll * __restrict poller)
 {
 	/*
 	 * Unregister from poller since we registered at connect time, see
-	 * galvsmpl_disc_on_connect().
+	 * galvsmpl_echo_on_connect().
 	 */
 	galv_conn_unpoll(connection, poller);
 }
 
 static
 int
-galvsmpl_disc_on_error(struct galv_conn * __restrict   connection __unused,
+galvsmpl_echo_on_error(struct galv_conn * __restrict   connection __unused,
                        uint32_t                        events __unused,
                        const struct upoll * __restrict poller __unused)
 {
@@ -133,14 +227,14 @@ galvsmpl_disc_on_error(struct galv_conn * __restrict   connection __unused,
 	return 0;
 }
 
-static const struct galv_conn_ops galvsmpl_disc_conn_ops = {
-	.on_may_xfer  = galvsmpl_disc_on_may_xfer,
-	.on_connect   = galvsmpl_disc_on_connect,
-	.on_send_shut = galvsmpl_disc_on_send_shut,
-	.on_recv_shut = galvsmpl_disc_on_recv_shut,
+static const struct galv_conn_ops galvsmpl_echo_conn_ops = {
+	.on_may_xfer  = galvsmpl_echo_on_may_xfer,
+	.on_connect   = galvsmpl_echo_on_connect,
+	.on_send_shut = galvsmpl_echo_on_send_shut,
+	.on_recv_shut = galvsmpl_echo_on_recv_shut,
 	.halt         = galv_conn_close,
-	.close        = galvsmpl_disc_close,
-	.on_error     = galvsmpl_disc_on_error
+	.close        = galvsmpl_echo_close,
+	.on_error     = galvsmpl_echo_on_error
 };
 
 static
@@ -196,13 +290,13 @@ main(void)
 	struct galv_unix_adopt  adopt;
 	struct upoll            poll;
 	struct galv_repo        repo = GALV_REPO_INIT(repo,
-	                                              GALVSMPL_DISC_CONN_NR);
+	                                              GALVSMPL_ECHO_CONN_NR);
 	struct galv_accept      accept;
 	int                     ret;
 
 	galvsmpl_init();
 
-	alloc = galv_unix_create_conn_alloc(GALVSMPL_DISC_CONN_NR);
+	alloc = galv_unix_create_conn_alloc(GALVSMPL_ECHO_CONN_NR);
 	if (!alloc) {
 		ret = -errno;
 		galvsmpl_perr(errno, "failed to create UNIX socket allocator");
@@ -210,7 +304,7 @@ main(void)
 	}
 
 	ret = galv_unix_adopt_open(&adopt,
-	                           GALVSMPL_DISC_PATH,
+	                           GALVSMPL_ECHO_PATH,
 	                           SOCK_STREAM,
 	                           SOCK_CLOEXEC,
 	                           alloc,
@@ -221,7 +315,7 @@ main(void)
 	}
 
 	/* Max number of connections + 1 for acceptor / adopter socket. */
-	ret = upoll_open(&poll, GALVSMPL_DISC_CONN_NR + 1);
+	ret = upoll_open(&poll, GALVSMPL_ECHO_CONN_NR + 1);
 	if (ret) {
 		galvsmpl_perr(-ret, "failed to open poller");
 		goto close_adopt;
@@ -230,8 +324,8 @@ main(void)
 	ret = galv_accept_open(&accept,
 	                       &repo,
 	                       (struct galv_adopt *)&adopt,
-	                       GALVSMPL_DISC_BACKLOG,
-	                       &galvsmpl_disc_conn_ops,
+	                       GALVSMPL_ECHO_BACKLOG,
+	                       &galvsmpl_echo_conn_ops,
 	                       SOCK_CLOEXEC,
 	                       &poll);
 	if (ret) {

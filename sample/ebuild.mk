@@ -23,10 +23,12 @@ galv-smpl-sess-cflags  := $(common-cflags)
 galv-smpl-sess-ldflags := $(smpl-ldflags)
 galv-smpl-sess-pkgconf := libelog libutils
 
-bins                   := $(call kconf_enabled,GALV_SMPL_DISC,galv-smpl-disc)
-galv-smpl-disc-objs    := $(call kconf_enabled,GALV_SMPL_DISC,disc_srv.o)
-galv-smpl-disc-cflags  := $(common-cflags)
-galv-smpl-disc-ldflags := $(smpl-ldflags)
-galv-smpl-disc-pkgconf := libelog libutils
+bins                       := $(call kconf_enabled,GALV_SMPL_DISC_SRV, \
+                                                   galv-smpl-disc-srv)
+galv-smpl-disc-srv-objs    := $(call kconf_enabled,GALV_SMPL_DISC_SRV, \
+                                                   disc_srv.o)
+galv-smpl-disc-srv-cflags  := $(common-cflags)
+galv-smpl-disc-srv-ldflags := $(smpl-ldflags)
+galv-smpl-disc-srv-pkgconf := libelog libutils
 
 # ex: filetype=make :
