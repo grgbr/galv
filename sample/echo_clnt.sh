@@ -3,22 +3,25 @@
 ECHO_SRV="$HOME/devel/test/out/root/bin/galv-smpl-echo-srv"
 BLOCKSIZES=(512 768 999 1024 1025 1460 1500 2047 2048 2049 4095 4096 4097)
 
-workdir="$TMPDIR/galv-smpl-echo-clnt"
 inpath="/dev/urandom"
 insize=$((256*1024*1024))
+tmpdir=${TMPDIR:-/tmp}
+workdir="$tmpdir/galv-smpl-echo-clnt.$$"
 refpath="$workdir/ref.dat"
-outpath="$workdir/out.dat"
+sockpath="./sock"
 
 cleanup()
 {
-	trap - EXIT
+	trap - EXIT INT QUIT TERM HUP
 
-	if [ "$stat" -ne "0" ]; then
+	if [ $stat -ne 0 ] || [ $fail -ne 0 ]; then
 		printf "\nThere has been some FAILURES.\n" >&2
+		stat=1
 	else
 		printf "\nAll tests PASSED.\n" >&2
 	fi
 
+	pkill --parent $$ --signal KILL || true
 	rm -rf $workdir
 
 	exit $stat
@@ -26,7 +29,8 @@ cleanup()
 
 wait_pid()
 {
-	local sec=5
+	local pid=$1
+	local sec=10
 
 	while [ $sec -gt 0 ]; do
 		if [ ! -d /proc/$pid ]; then
@@ -37,46 +41,228 @@ wait_pid()
 	done
 
 	if [ $sec -le 0 ]; then
-		kill -KILL $pid || true
+		kill -KILL $pid >/dev/null 2>&1 || true
 		return 1
 	fi
 
 	return 0
 }
 
+wait_pids()
+{
+	local pids="$@"
+	local ret=0
+
+	for p in $pids; do
+		if ! wait_pid "$p"; then
+			ret=1
+		fi
+	done
+
+	return $ret
+}
+
 show()
 {
 	local size="$1"
-	local stat="$2"
+	local res="$2"
 
-	printf "%10u ... %s\n" "$size" "$stat" >&2
+	printf "%10u ... %s\n" "$size" "$res" >&2
 }
 
-run()
+spawn_srv()
 {
-	local blksize=$1
+	local cnt=5
 	local pid
 
 	$ECHO_SRV >/dev/null 2>&1 &
 	pid=$!
 
-	rm -f "$outpath"
-	dd if="$refpath" bs=$blksize status=none | nc -N -U ./sock > "$outpath"
+	while [ $cnt -gt 0 ]; do
+		sync
+		if [ -S "$sockpath" ]; then
+			break;
+		fi
 
-	kill -TERM $pid
-	if ! wait_pid "$pid"; then
-		show "$blksize" "fail"
+		sleep 1
+
+		if [ ! -d "/proc/$pid" ]; then
+			return 1
+		fi
+
+		cnt=$((cnt - 1))
+	done
+
+	echo "$pid"
+
+	return 0
+}
+
+do_xfer()
+{
+	local out="$1"
+	local blksz=$2
+
+	rm -f "$out"
+
+	dd if="$refpath" bs=$blksz status=none | nc -N -U "$sockpath" > "$out"
+	sync
+}
+
+check_xfer()
+{
+	local out="$1"
+	local blksz=$2
+
+	do_xfer "$out" "$blksz"
+	if ! cmp "$refpath" "$out"; then
 		return 1
 	fi
 
-	if ! cmp "$refpath" "$outpath"; then
-		show "$blksize" "FAILURE"
+	return 0
+}
+
+test_single_conn_xfer()
+{
+	local out="$1"
+	local blksz=$2
+	local pid
+	local ret=0
+
+	if ! pid=$(spawn_srv); then
+		return 1
+	fi
+
+	if ! check_xfer "$out" "$blksz"; then
+		ret=1
+	fi
+
+	kill -TERM $pid >/dev/null 2>&1
+	if ! wait_pid "$pid"; then
+		ret=1
+	fi
+
+	if [ $ret -ne 0 ]; then
+		show "$blksz" "fail"
+	else
+		show "$blksz" "pass"
+	fi
+
+	return $ret
+}
+
+test_multi_conn_xfer()
+{
+	local out="$1"
+	local pid
+	local blksz
+	local ret=0
+
+	if ! pid=$(spawn_srv); then
+		return 1
+	fi
+
+	for blksz in ${BLOCKSIZES[@]}; do
+		if ! check_xfer "$out" "$blksz"; then
+			show "$blksz" "fail"
+			ret=1
+		else
+			show "$blksz" "pass"
+		fi
+	done
+
+	kill -TERM $pid >/dev/null 2>&1
+	if ! wait_pid "$pid"; then
+		printf "\nFailed to terminate server process\n" >&2
+		ret=1
+	fi
+
+	return $ret
+}
+
+test_simult_conn_xfer()
+{
+	local      out="$1"
+	local      blksz=$2
+	local      srv_pid
+	local      job
+	declare -a clnt_pids
+	local      ret=0
+
+	if ! srv_pid=$(spawn_srv); then
+		return 1
+	fi
+
+	job=0
+	while [ $job -lt $jobnr ]; do
+		do_xfer "$out.$job" "$blksz" &
+		clnt_pids[$job]=$!
+		job=$((job + 1))
+	done
+
+	if ! wait_pids "${clnt_pids[@]}"; then
+		ret=1
+	fi
+
+	kill -TERM $srv_pid >/dev/null 2>&1
+	if ! wait_pid "$srv_pid"; then
+		ret=1
+	fi
+
+	if [ $ret -eq 0 ]; then
+		job=0
+		while [ $job -lt $jobnr ]; do
+			if ! cmp "$refpath" "$out.$job"; then
+				ret=1
+				break
+			fi
+			job=$((job + 1))
+		done
+	fi
+
+	if [ $ret -ne 0 ]; then
+		show "$blksz" "fail"
+		return 1
+	else
+		show "$blksz" "pass"
+		return 0
+	fi
+}
+
+test_single_conn_term()
+{
+	local outpath="$1"
+	local blksize=$2
+	local srv_pid
+	local clnt_pid
+
+	if ! srv_pid=$(spawn_srv); then
+		return 1
+	fi
+
+	rm -f "$outpath"
+	dd if="$refpath" bs=$blksize status=none | \
+		nc -U "$sockpath" > "$outpath" &
+	clnt_pid=$!
+	sync
+
+	kill -TERM $srv_pid >/dev/null 2>&1
+	if ! wait_pid "$srv_pid"; then
+		show "$blksize" "fail"
+		return 1
+	fi
+	if ! wait_pid "$clnt_pid"; then
+		show "$blksize" "fail"
 		return 1
 	fi
 
 	show "$blksize" "pass"
 	return 0
 }
+
+if ! jobnr=$(lscpu --online --parse=CPU | grep -v '^#' | wc -l); then
+	echo "failed to probe for available CPUs" >&2
+fi
 
 mkdir -p "$workdir"
 cd "$workdir"
@@ -85,14 +271,48 @@ if [ ! -f "$refpath" ]; then
 		base64 --wrap=50 > "$refpath"
 fi
 
-printf "Testing %u bytes long 'echo' client / server transfers...\n\n" \
-       "$(stat --printf="%s" $refpath)"
-printf "%10.10s ... %s\n" "BLOCK SIZE" "RESULT" >&2
+fail=0
+stat=1
+trap 'cleanup' EXIT INT QUIT TERM HUP
 
-stat=0
-trap 'cleanup' EXIT
+title=$(printf "Running 'echo' client / server with %u bytes long payload" \
+	"$(stat --printf="%s" $refpath)")
+printf "### %*.*s ###\n" "${#title}" "${#title}" "" >&2
+printf "### %*.*s ###\n" "${#title}" "${#title}" "$title" >&2
+printf "### %*.*s ###\n" "${#title}" "${#title}" "" >&2
+
+printf "Single connection transfers\n" >&2
+printf "===========================\n\n" >&2
+printf "%10.10s ... %s\n" "Block size" "Result" >&2
 for bs in ${BLOCKSIZES[@]}; do
-	if ! run "$bs" ; then
-		stat=1
+	if ! test_single_conn_xfer "$workdir/out.dat" "$bs" ; then
+		fail=$((fail + 1))
 	fi
 done
+
+printf "\nMultiple connection transfers\n" >&2
+printf "=============================\n\n" >&2
+printf "%10.10s ... %s\n" "Block size" "Result" >&2
+if ! test_multi_conn_xfer "$workdir/out.dat" ; then
+	fail=$((fail + 1))
+fi
+
+printf "\nConcurrent connection transfers\n" >&2
+printf "===============================\n\n" >&2
+printf "%10.10s ... %s\n" "Block size" "Result" >&2
+for bs in ${BLOCKSIZES[@]}; do
+	if ! test_simult_conn_xfer "$workdir/out.dat" "$bs" ; then
+		fail=$((fail + 1))
+	fi
+done
+
+printf "\nSingle connection termination\n" >&2
+printf "=============================\n\n" >&2
+stat=${#BLOCKSIZES[@]}
+for bs in ${BLOCKSIZES[@]}; do
+	if ! test_single_conn_term "$workdir/out.dat" "$bs" ; then
+		fail=$((fail + 1))
+	fi
+done
+
+stat=0
