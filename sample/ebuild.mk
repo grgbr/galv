@@ -39,4 +39,26 @@ galv-smpl-echo-srv-cflags  := $(common-cflags)
 galv-smpl-echo-srv-ldflags := $(smpl-ldflags)
 galv-smpl-echo-srv-pkgconf := libelog libutils
 
+build: $(BUILDDIR)/galv-smpl-echo-clnt
+$(BUILDDIR)/galv-smpl-echo-clnt: $(SRCDIR)/echo_clnt.sh | $(BUILDDIR)/
+	@echo "  GENSH   $(@)"
+	sed -e 's;@@BINDIR@@;$(BINDIR);g' \
+	    $(<) > $(@)
+
+clean: _clean
+.PHONY: _clean
+_clean:
+	$(call rm_recipe,$(BUILDDIR)/galv-smpl-echo-clnt)
+
+install: $(DESTDIR)$(BINDIR)/galv-smpl-echo-clnt
+
+.PHONY: $(DESTDIR)$(BINDIR)/galv-smpl-echo-clnt
+$(DESTDIR)$(BINDIR)/galv-smpl-echo-clnt: $(BUILDDIR)/galv-smpl-echo-clnt
+	$(call install_recipe,--mode=755,$(<),$(@))
+	
+uninstall: _uninstall
+.PHONY: _uninstall
+_uninstall:
+	$(call rm_recipe,$(DESTDIR)$(BINDIR)/galv-smpl-echo-clnt)
+
 # ex: filetype=make :

@@ -1,7 +1,7 @@
 #!/bin/sh -e
 
-ECHO_SRV="$HOME/devel/test/out/root/bin/galv-smpl-echo-srv"
-BLOCKSIZES=(512 768 999 1024 1025 1460 1500 2047 2048 2049 4095 4096 4097)
+ECHO_SRV="@@BINDIR@@/galv-smpl-echo-srv"
+BLOCKSIZES="512 768 999 1024 1025 1460 1500 2047 2048 2049 4095 4096 4097"
 
 inpath="/dev/urandom"
 insize=$((256*1024*1024))
@@ -162,7 +162,7 @@ test_multi_conn_xfer()
 		return 1
 	fi
 
-	for blksz in ${BLOCKSIZES[@]}; do
+	for blksz in $BLOCKSIZES; do
 		if ! check_xfer "$out" "$blksz"; then
 			show "$blksz" "fail"
 			ret=1
@@ -173,7 +173,6 @@ test_multi_conn_xfer()
 
 	kill -TERM $pid >/dev/null 2>&1
 	if ! wait_pid "$pid"; then
-		printf "\nFailed to terminate server process\n" >&2
 		ret=1
 	fi
 
@@ -182,12 +181,12 @@ test_multi_conn_xfer()
 
 test_simult_conn_xfer()
 {
-	local      out="$1"
-	local      blksz=$2
-	local      srv_pid
-	local      job
-	declare -a clnt_pids
-	local      ret=0
+	local  out="$1"
+	local  blksz=$2
+	local  srv_pid
+	local  job
+	local  clnt_pids=""
+	local  ret=0
 
 	if ! srv_pid=$(spawn_srv); then
 		return 1
@@ -196,11 +195,11 @@ test_simult_conn_xfer()
 	job=0
 	while [ $job -lt $jobnr ]; do
 		do_xfer "$out.$job" "$blksz" &
-		clnt_pids[$job]=$!
+		clnt_pids="$clnt_pids $!"
 		job=$((job + 1))
 	done
 
-	if ! wait_pids "${clnt_pids[@]}"; then
+	if ! wait_pids "$clnt_pids"; then
 		ret=1
 	fi
 
@@ -231,8 +230,8 @@ test_simult_conn_xfer()
 
 test_single_conn_term()
 {
-	local outpath="$1"
-	local blksize=$2
+	local out="$1"
+	local blksz=$2
 	local srv_pid
 	local clnt_pid
 
@@ -240,24 +239,77 @@ test_single_conn_term()
 		return 1
 	fi
 
-	rm -f "$outpath"
-	dd if="$refpath" bs=$blksize status=none | \
-		nc -U "$sockpath" > "$outpath" &
+	rm -f "$out"
+	dd if="$refpath" bs=$blksz status=none | \
+		nc -U "$sockpath" > "$out" &
 	clnt_pid=$!
 	sync
 
 	kill -TERM $srv_pid >/dev/null 2>&1
 	if ! wait_pid "$srv_pid"; then
-		show "$blksize" "fail"
+		show "$blksz" "fail"
 		return 1
 	fi
 	if ! wait_pid "$clnt_pid"; then
-		show "$blksize" "fail"
+		show "$blksz" "fail"
 		return 1
 	fi
 
-	show "$blksize" "pass"
+	show "$blksz" "pass"
 	return 0
+}
+
+do_endless_xfer()
+{
+	local out="$1"
+	local blksz=$2
+
+	rm -f "$out"
+
+	dd if="$refpath" bs=$blksz status=none | nc -U "$sockpath" > "$out"
+	sync
+}
+
+test_simult_conn_term()
+{
+	local out="$1"
+	local srv_pid
+	local job
+	local blksz
+	local clnt_pids=""
+	local pid
+	local ret=0
+
+	if ! srv_pid=$(spawn_srv); then
+		return 1
+	fi
+	
+	job=0
+	for blksz in $BLOCKSIZES; do
+		do_endless_xfer "$out.$job" "$blksz" &
+		clnt_pids="$clnt_pids $!"
+		job=$((job + 1))
+	done
+
+	# Give clients enought time to start.
+	sleep 2
+	
+	kill -TERM $srv_pid >/dev/null 2>&1
+	if ! wait_pid "$srv_pid"; then
+		ret=1
+	fi
+
+	if ! wait_pids "$clnt_pids"; then
+		ret=1
+	fi
+
+	if [ $ret -ne 0 ]; then
+		echo "fail" >&2
+		return 1
+	else
+		echo "pass" >&2
+		return 0
+	fi
 }
 
 if ! jobnr=$(lscpu --online --parse=CPU | grep -v '^#' | wc -l); then
@@ -281,10 +333,10 @@ printf "### %*.*s ###\n" "${#title}" "${#title}" "" >&2
 printf "### %*.*s ###\n" "${#title}" "${#title}" "$title" >&2
 printf "### %*.*s ###\n" "${#title}" "${#title}" "" >&2
 
-printf "Single connection transfers\n" >&2
+printf "\nSingle connection transfers\n" >&2
 printf "===========================\n\n" >&2
 printf "%10.10s ... %s\n" "Block size" "Result" >&2
-for bs in ${BLOCKSIZES[@]}; do
+for bs in $BLOCKSIZES; do
 	if ! test_single_conn_xfer "$workdir/out.dat" "$bs" ; then
 		fail=$((fail + 1))
 	fi
@@ -300,7 +352,7 @@ fi
 printf "\nConcurrent connection transfers\n" >&2
 printf "===============================\n\n" >&2
 printf "%10.10s ... %s\n" "Block size" "Result" >&2
-for bs in ${BLOCKSIZES[@]}; do
+for bs in $BLOCKSIZES; do
 	if ! test_simult_conn_xfer "$workdir/out.dat" "$bs" ; then
 		fail=$((fail + 1))
 	fi
@@ -308,11 +360,17 @@ done
 
 printf "\nSingle connection termination\n" >&2
 printf "=============================\n\n" >&2
-stat=${#BLOCKSIZES[@]}
-for bs in ${BLOCKSIZES[@]}; do
+printf "%10.10s ... %s\n" "Block size" "Result" >&2
+for bs in $BLOCKSIZES; do
 	if ! test_single_conn_term "$workdir/out.dat" "$bs" ; then
 		fail=$((fail + 1))
 	fi
 done
+
+printf "\nConcurrent connection termination\n" >&2
+printf "=================================\n\n" >&2
+if ! test_simult_conn_term "$workdir/out.dat" ; then
+	fail=$((fail + 1))
+fi
 
 stat=0
