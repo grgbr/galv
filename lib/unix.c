@@ -124,16 +124,15 @@ galv_unix_adopt_destroy_conn(const struct galv_adopt * __restrict adopter,
 	galv_unix_assert_adopt_api((const struct galv_unix_adopt *)adopter);
 	galv_unix_assert_conn_intern((struct galv_unix_conn *)connection);
 
-	struct ucred * cred __unused = &((struct galv_unix_conn *)
-	                                 connection)->peer.cred;
-	int            ret;
+	struct ucred cred = ((struct galv_unix_conn *)connection)->peer.cred;
+	int          ret;
 
 	ret = etux_sock_close(connection->fd);
 	stroll_free(galv_adopt_allocator(adopter), connection);
 	if (!ret || (ret == -EINTR)) {
 		galv_debug("unix: connection destroyed [pid:%d, uid:%d]",
-		           cred->pid,
-		           cred->uid);
+		           cred.pid,
+		           cred.uid);
 		return ret;
 	}
 
