@@ -34,7 +34,7 @@ struct galv_accept {
 
 extern int
 galv_accept_resume(struct galv_accept * __restrict acceptor,
-                    const struct upoll * __restrict poller)
+                   const struct upoll * __restrict poller)
 	__export_public;
 
 extern void
