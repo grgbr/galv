@@ -48,26 +48,37 @@ galv_sess_msg_push_tail(struct galv_sess_msg * __restrict message,
 
 struct galv_sess_conn;
 
-/* Receive use case. */
+/*
+ * Receive use case.
+ * Return -ENODATA if no more data available
+ */
 extern struct galv_sess_msg *
-galv_sess_pull_msg(struct galv_sess_conn * __restrict connection)
+galv_sess_pull_msg(struct galv_sess_conn * __restrict session)
 	__export_public;
 
 /* Allocate a fresh empty message. */
 extern struct galv_sess_msg *
-galv_sess_alloc_msg(struct galv_sess * __restrict connection)
+galv_sess_alloc_msg(struct galv_sess_conn * __restrict session)
 	__export_public;
 
 /* Emit use case. */
 extern void
-galv_sess_push_msg(struct galv_sess * __restrict     connection,
-                   struct galv_sess_msg * __restrict message)
+galv_sess_push_msg(struct galv_sess_conn * __restrict session,
+                   struct galv_sess_msg * __restrict  message)
 	__export_public;
 
 /* Release a message. */
 extern void
-galv_sess_drop_msg(struct galv_sess * __restrict     connection,
-                   struct galv_sess_msg * __restrict message)
+galv_sess_drop_msg(struct galv_sess_conn * __restrict session,
+                   struct galv_sess_msg * __restrict  message)
+	__export_public;
+
+/******************************************************************************
+ * Session connection allocator
+ ******************************************************************************/
+
+extern struct stroll_alloc *
+galv_sess_create_conn_alloc(unsigned int nr, size_t size)
 	__export_public;
 
 /******************************************************************************
@@ -82,22 +93,13 @@ galv_sess_open_accept(struct galv_sess_accept * __restrict    acceptor,
                       struct stroll_alloc * __restrict        allocator,
                       struct galv_adopt * __restrict          adopter,
                       unsigned int                            backlog,
-                      const struct galv_conn_ops * __restrict operations,
                       int                                     flags,
                       const struct upoll * __restrict         poller)
 	__export_public;
 
 extern void
-galv_sess_close_accept(const struct galv_accept * __restrict acceptor,
-                       const struct upoll * __restrict       poller)
-	__export_public;
-
-/******************************************************************************
- * Session connection allocator
- ******************************************************************************/
-
-extern struct stroll_alloc *
-galv_sess_create_conn_alloc(unsigned int nr, size_t size)
+galv_sess_close_accept(const struct galv_sess_accept * __restrict acceptor,
+                       const struct upoll * __restrict            poller)
 	__export_public;
 
 #endif /* _GALV_SESSION_H */

@@ -5,8 +5,8 @@
 * Copyright (C) 2017-2025 Grégor Boirie <gregor.boirie@free.fr>
 *******************************************************************************/
 
-#ifndef _GALV_PRIV_FRAGMENT_H
-#define _GALV_PRIV_FRAGMENT_H
+#ifndef _GALV_LIB_FRAGMENT_H
+#define _GALV_LIB_FRAGMENT_H
 
 #include <galv/buffer.h>
 #include <stroll/falloc.h>
@@ -191,4 +191,4 @@ galv_frag_fini_alloc(struct stroll_falloc * __restrict alloc)
 	stroll_falloc_fini(alloc);
 }
 
-#endif /* _GALV_PRIV_FRAGMENT_H */
+#endif /* _GALV_LIB_FRAGMENT_H */

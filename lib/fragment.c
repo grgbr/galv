@@ -6,7 +6,7 @@
 *******************************************************************************/
 
 #include "common.h"
-#include "galv/priv/fragment.h"
+#include "fragment.h"
 #include <stroll/page.h>
 
 size_t

@@ -19,7 +19,6 @@ headers         += $(call kconf_enabled,GALV_GATE,galv/gate.h)
 headers         += $(call kconf_enabled,GALV_UNIX,galv/unix.h)
 headers         += $(call kconf_enabled,GALV_UNIX,galv/priv/unix.h)
 headers         += $(call kconf_enabled,GALV_BUFF,galv/buffer.h)
-headers         += $(call kconf_enabled,GALV_FRAG,galv/priv/fragment.h)
 headers         += $(call kconf_enabled,GALV_SESS,galv/session.h)
 headers         += $(call kconf_enabled,GALV_SESS,galv/priv/session.h)
 
