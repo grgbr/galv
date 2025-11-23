@@ -6,6 +6,7 @@
  ******************************************************************************/
 
 #include "adopt.h"
+#include <stroll/page.h>
 
 struct galv_conn *
 galv_adopt_create_conn(const struct galv_adopt * __restrict    adopter,
@@ -51,4 +52,43 @@ galv_adopt_destroy_conn(const struct galv_adopt * __restrict adopter,
 	galv_gate_untrack(adopter->gate, connection);
 
 	return adopter->ops->destroy_conn(adopter, connection);
+}
+
+void
+galv_adopt_setup(struct galv_adopt * __restrict           adopter,
+                 const struct galv_adopt_ops * __restrict operations,
+                 int                                      fd,
+                 unsigned int                             max_conn,
+                 size_t                                   conn_size,
+                 struct galv_gate * __restrict            gate)
+{
+	galv_assert_intern(adopter);
+	galv_adopt_assert_ops_intern(operations);
+	galv_assert_intern(fd >= 0);
+	galv_assert_intern(max_conn);
+	galv_assert_intern(conn_size >= sizeof(struct galv_conn));
+	galv_assert_intern(conn_size < (stroll_page_size() / 8));
+	galv_gate_assert_intern(gate);
+
+	adopter->ops = operations;
+	adopter->fd = fd;
+	stroll_falloc_init_block_size(&adopter->alloc,
+	                              max_conn,
+	                              conn_size,
+	                              stroll_page_size());
+	adopter->gate = gate;
+}
+
+int
+galv_adopt_close(struct galv_adopt * __restrict adopter)
+{
+	galv_adopt_assert_api(adopter);
+
+	int ret;
+
+	ret = etux_sock_close(adopter->fd);
+
+	stroll_falloc_fini(&adopter->alloc);
+
+	return ret;
 }

@@ -25,7 +25,6 @@ galv_frag_load(struct galv_frag * __restrict fragment,
 	return bytes;
 }
 
-static
 void
 galv_frag_init(struct galv_frag * __restrict fragment,
                size_t                        capacity,
@@ -45,58 +44,4 @@ galv_frag_init(struct galv_frag * __restrict fragment,
 	stroll_buff_setup(&fragment->base, capa, off, 0);
 
 	fragment->buff = galv_buff_acquire(buffer);
-}
-
-static
-void
-galv_frag_fini(struct galv_frag * __restrict fragment)
-{
-	galv_frag_assert_api(fragment);
-
-	galv_buff_release(fragment->buff);
-}
-
-struct galv_frag *
-galv_frag_create(struct stroll_falloc * __restrict alloc,
-                 size_t                            capacity,
-                 struct galv_buff * __restrict     buffer)
-{
-	galv_assert_api(alloc);
-	galv_assert_api(capacity);
-	galv_assert_api(buffer);
-	galv_assert_api(capacity <= galv_buff_capacity(buffer));
-
-	struct galv_frag * frag;
-
-	frag = stroll_falloc_alloc(alloc);
-	if (!frag)
-		return NULL;
-
-	galv_frag_init(frag, capacity, buffer);
-
-	return frag;
-}
-
-void
-galv_frag_destroy(struct galv_frag * __restrict fragment)
-{
-	galv_frag_assert_api(fragment);
-
-	galv_frag_fini(fragment);
-	stroll_falloc_free(fragment->alloc, fragment);
-}
-
-void
-galv_frag_init_alloc(struct stroll_falloc * __restrict alloc, unsigned int nr)
-{
-	galv_assert_api(alloc);
-	galv_assert_api(nr);
-
-	unsigned int per_blk;
-
-	per_blk = (unsigned int)
-	          (stroll_page_size() /
-	           stroll_falloc_align_chunk_size(sizeof(struct galv_frag)));
-
-	return stroll_falloc_init(alloc, nr, per_blk, sizeof(struct galv_frag));
 }

@@ -12,7 +12,6 @@ libgalv-objects    := common.o \
                       adopt.o \
                       conn.o \
                       repo.o \
-                      $(call kconf_enabled,GALV_ALLOC,alloc.o) \
                       $(call kconf_enabled,GALV_GATE,gate.o) \
                       $(call kconf_enabled,GALV_BUFF,buffer.o) \
                       $(call kconf_enabled,GALV_FRAG,fragment.o) \

@@ -115,7 +115,7 @@ check_xfer()
 	local blksz=$2
 
 	do_xfer "$out" "$blksz"
-	if ! cmp "$refpath" "$out"; then
+	if ! cmp "$refpath" "$out" 2>/dev/null; then
 		return 1
 	fi
 
@@ -211,7 +211,7 @@ test_simult_conn_xfer()
 	if [ $ret -eq 0 ]; then
 		job=0
 		while [ $job -lt $jobnr ]; do
-			if ! cmp "$refpath" "$out.$job"; then
+			if ! cmp "$refpath" "$out.$job" 2>/dev/null; then
 				ret=1
 				break
 			fi

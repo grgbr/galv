@@ -43,23 +43,32 @@ struct galv_adopt_ops {
 	galv_assert_api(_adopt); \
 	galv_adopt_assert_ops_api((_adopt)->ops); \
 	galv_assert_api((_adopt)->fd >= 0); \
-	galv_assert_api((_adopt)->alloc); \
 	galv_assert_api((_adopt)->gate)
 
 #define galv_adopt_assert_intern(_adopt) \
 	galv_assert_intern(_adopt); \
 	galv_adopt_assert_ops_intern((_adopt)->ops); \
 	galv_assert_intern((_adopt)->fd >= 0); \
-	galv_assert_intern((_adopt)->alloc); \
 	galv_assert_intern((_adopt)->gate)
 
 static inline
-struct stroll_alloc *
+unsigned int
+galv_adopt_conn_nr(const struct galv_adopt * __restrict adopter)
+{
+	galv_adopt_assert_api(adopter);
+
+	return stroll_falloc_chunk_nr(&adopter->alloc);
+}
+
+static inline
+struct stroll_falloc *
 galv_adopt_allocator(const struct galv_adopt * __restrict adopter)
 {
 	galv_adopt_assert_api(adopter);
 
-	return adopter->alloc;
+STROLL_IGNORE_WARN("-Wcast-qual")
+	return (struct stroll_falloc *)&adopter->alloc;
+STROLL_RESTORE_WARN
 }
 
 static inline
@@ -81,33 +90,15 @@ extern int
 galv_adopt_destroy_conn(const struct galv_adopt * __restrict adopter,
                         struct galv_conn * __restrict        connection);
 
-static inline
-void
+extern void
 galv_adopt_setup(struct galv_adopt * __restrict           adopter,
                  const struct galv_adopt_ops * __restrict operations,
                  int                                      fd,
-                 struct stroll_alloc * __restrict         allocator,
-                 struct galv_gate * __restrict            gate)
-{
-	galv_assert_intern(adopter);
-	galv_adopt_assert_ops_intern(operations);
-	galv_assert_intern(fd >= 0);
-	galv_assert_intern(allocator);
-	galv_gate_assert_intern(gate);
+                 unsigned int                             max_conn,
+                 size_t                                   conn_size,
+                 struct galv_gate * __restrict            gate);
 
-	adopter->ops = operations;
-	adopter->fd = fd;
-	adopter->alloc = allocator;
-	adopter->gate = gate;
-}
-
-static inline
-int
-galv_adopt_close(const struct galv_adopt * __restrict adopter)
-{
-	galv_adopt_assert_api(adopter);
-
-	return etux_sock_close(adopter->fd);
-}
+extern int
+galv_adopt_close(struct galv_adopt * __restrict adopter);
 
 #endif /* _GALV_LIB_ADOPT_H */

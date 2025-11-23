@@ -22,57 +22,7 @@
 #include <galv/cdefs.h>
 #include <stroll/buffer.h>
 #include <stroll/slist.h>
-#include <stroll/alloc.h>
-
-/**
- * Core network buffer allocator
- */
-struct galv_buff_alloc {
-	struct stroll_alloc * stroll;
-	size_t                capa;
-};
-
-#define galv_buff_assert_alloc_api(_alloc) \
-	galv_assert_api((_alloc)->stroll); \
-	galv_assert_api((_alloc)->capa >= STROLL_BUFF_CAPACITY_MIN); \
-	galv_assert_api((_alloc)->capa <= STROLL_BUFF_CAPACITY_MAX)
-
-static inline
-size_t
-galv_buff_alloc_capacity(const struct galv_buff_alloc * __restrict alloc)
-{
-	galv_buff_assert_alloc_api(alloc);
-
-	return alloc->capa;
-}
-
-extern int
-galv_buff_init_palloc(struct galv_buff_alloc * __restrict alloc,
-                      unsigned int                        nr,
-                      size_t                              size)
-	__export_public;
-
-extern int
-galv_buff_init_falloc(struct galv_buff_alloc * __restrict alloc,
-                      unsigned int                        nr,
-                      unsigned int                        per_block,
-                      size_t                              size)
-	__export_public;
-
-extern int
-galv_buff_init_lalloc(struct galv_buff_alloc * __restrict alloc,
-                      unsigned int                        nr,
-                      size_t                              size)
-	__export_public;
-
-static inline
-void
-galv_buff_fini_alloc(const struct galv_buff_alloc * __restrict alloc)
-{
-	galv_buff_assert_alloc_api(alloc);
-
-	stroll_alloc_destroy(alloc->stroll);
-}
+#include <stroll/falloc.h>
 
 /**
  * Core network buffer.
@@ -84,7 +34,7 @@ struct galv_buff {
 	struct stroll_slist_node node;
 	struct galv_buff_queue * queue;
 	unsigned long            ref;
-	struct galv_buff_alloc * alloc;
+	struct stroll_falloc *   alloc;
 	uint8_t                  mem[0];
 };
 
@@ -92,8 +42,8 @@ struct galv_buff {
 	galv_assert_api(_buff); \
 	galv_assert_api((_buff)->ref); \
 	galv_assert_api((_buff)->alloc); \
-	galv_assert_api(stroll_buff_capacity(&(_buff)->base) == \
-	                galv_buff_alloc_capacity((_buff)->alloc))
+	galv_assert_api(stroll_buff_capacity(&(_buff)->base) <= \
+	                stroll_falloc_chunk_size((_buff)->alloc))
 
 static inline
 size_t
@@ -190,8 +140,10 @@ galv_buff_acquire(struct galv_buff * __restrict buffer)
 	return buffer;
 }
 
+#define GALV_BUFF_DFLT_CAPA (0U)
+
 extern struct galv_buff *
-galv_buff_summon(struct galv_buff_alloc * __restrict alloc)
+galv_buff_summon(struct stroll_falloc * __restrict alloc, size_t capacity)
 	__export_public;
 
 extern void

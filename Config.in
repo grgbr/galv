@@ -39,12 +39,6 @@ config GALV_UTEST
 	help
 	  Build Galv library unit test suite.
 
-config GALV_ALLOC
-	bool "Allocator"
-	default n
-	help
-	  Build Galv library with support for custom allocator.
-
 config GALV_GATE
 	bool "Connection gate"
 	default n
@@ -53,7 +47,6 @@ config GALV_GATE
 
 config GALV_UNIX
 	bool "Unix socket connection"
-	select GALV_ALLOC
 	default y
 	help
 	  Build Galv library with Unix socket based connection support.

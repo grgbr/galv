@@ -65,6 +65,15 @@ struct galv_accept_ops {
 	galv_assert_intern((_accept)->state < GALV_ACCEPT_STATE_NR)
 
 static inline
+unsigned int
+galv_accept_conn_nr(const struct galv_accept * __restrict acceptor)
+{
+	galv_accept_assert_api(acceptor);
+
+	return galv_adopt_conn_nr(acceptor->adopt);
+}
+
+static inline
 struct galv_adopt *
 galv_accept_adopter(const struct galv_accept * __restrict acceptor)
 {

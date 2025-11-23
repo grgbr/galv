@@ -6,20 +6,8 @@
  ******************************************************************************/
 
 #include "unix.h"
+#include <stroll/page.h>
 #include <stroll/hlist.h>
-#include <utils/unsk.h>
-
-/******************************************************************************
- * Unix connection allocator
- ******************************************************************************/
-
-struct stroll_alloc *
-galv_unix_create_conn_alloc(unsigned int nr)
-{
-	galv_assert_api(nr);
-
-	return galv_alloc_create(nr, sizeof(struct galv_unix_conn));
-}
 
 /******************************************************************************
  * Unix connection adopter handling
@@ -85,7 +73,7 @@ galv_unix_adopt_create_conn(const struct galv_adopt * __restrict    adopter,
 	}
 
 	/* Allocate UNIX connection. */
-	unc = stroll_alloc(galv_adopt_allocator(adopter));
+	unc = stroll_falloc_alloc(galv_adopt_allocator(adopter));
 	if (!unc) {
 		err = errno;
 		etux_sock_close(fd);
@@ -128,7 +116,7 @@ galv_unix_adopt_destroy_conn(const struct galv_adopt * __restrict adopter,
 	int          ret;
 
 	ret = etux_sock_close(connection->fd);
-	stroll_free(galv_adopt_allocator(adopter), connection);
+	stroll_falloc_free(galv_adopt_allocator(adopter), connection);
 	if (!ret || (ret == -EINTR)) {
 		galv_debug("unix: connection destroyed [pid:%d, uid:%d]",
 		           cred.pid,
@@ -147,19 +135,17 @@ static const struct galv_adopt_ops galv_unix_adopt_ops = {
 };
 
 int
-galv_unix_adopt_open(struct galv_unix_adopt * __restrict adopter,
-                     const char * __restrict             path,
-                     int                                 type,
-                     int                                 flags,
-                     struct stroll_alloc * __restrict    allocator,
-                     struct galv_gate * __restrict       gate)
+galv_unix_adopt_open(struct galv_unix_adopt * __restrict            adopter,
+                     int                                            type,
+                     int                                            flags,
+                     struct galv_gate * __restrict                  gate,
+                     const struct galv_unix_adopt_conf * __restrict config)
 {
 	galv_assert_api(adopter);
-	galv_assert_api(!unsk_is_named_path_ok(path));
 	galv_assert_api((type == SOCK_STREAM) || (type == SOCK_SEQPACKET));
 	galv_assert_api(!(flags & ~(SOCK_NONBLOCK | SOCK_CLOEXEC)));
-	galv_assert_api(allocator);
 	galv_gate_assert_api(gate);
+	galv_unix_assert_adopt_conf_api(config);
 
 	int          fd;
 	int          ret;
@@ -179,7 +165,7 @@ galv_unix_adopt_open(struct galv_unix_adopt * __restrict adopter,
 	 * entry that already exists will fail with EADDRINUSE error code
 	 * (AF_UNIX sockets do not support the SO_REUSEADDR socket option).
 	 */
-	ret = unsk_unlink(path);
+	ret = unsk_unlink(config->bind_path);
 	if (ret) {
 		msg = "failed to unlink pathname";
 		goto close;
@@ -188,7 +174,8 @@ galv_unix_adopt_open(struct galv_unix_adopt * __restrict adopter,
 	/* Build local bind address. */
 	adopter->bind_addr.size =
 		(socklen_t)offsetof(typeof(adopter->bind_addr.data), sun_path) +
-		(socklen_t)unsk_make_named_addr(&adopter->bind_addr.data, path);
+		(socklen_t)unsk_make_named_addr(&adopter->bind_addr.data,
+		                                config->bind_path);
 
 	/*
 	 * Bind to the given local filesystem pathname.
@@ -207,7 +194,8 @@ galv_unix_adopt_open(struct galv_unix_adopt * __restrict adopter,
 	galv_adopt_setup(&adopter->base,
 	                 &galv_unix_adopt_ops,
 	                 fd,
-	                 allocator,
+	                 config->max_conn,
+	                 sizeof(struct galv_unix_conn),
 	                 gate);
 
 	galv_debug("unix: adopter opened");
@@ -223,7 +211,7 @@ err:
 }
 
 int
-galv_unix_adopt_close(const struct galv_unix_adopt * __restrict adopter)
+galv_unix_adopt_close(struct galv_unix_adopt * __restrict adopter)
 {
 	galv_unix_assert_adopt_api(adopter);
 
@@ -285,7 +273,7 @@ galv_unix_gate_ucred_unregister_count(
 
 	if (!--count->val) {
 		stroll_hlist_del(&count->hlist);
-		stroll_free(gate->alloc, count);
+		stroll_falloc_free(&gate->alloc, count);
 	}
 }
 
@@ -338,7 +326,7 @@ galv_unix_gate_ucred_create_pid_count(
 {
 	struct galv_unix_gate_ucred_count * cnt;
 
-	cnt = stroll_alloc(gate->alloc);
+	cnt = stroll_falloc_alloc(&gate->alloc);
 	if (!cnt)
 		return NULL;
 
@@ -415,7 +403,7 @@ galv_unix_gate_ucred_create_uid_count(
 {
 	struct galv_unix_gate_ucred_count * cnt;
 
-	cnt = stroll_alloc(gate->alloc);
+	cnt = stroll_falloc_alloc(&gate->alloc);
 	if (!cnt)
 		return NULL;
 
@@ -560,11 +548,10 @@ galv_unix_gate_ucred_init(struct galv_unix_gate_ucred * __restrict gate,
 	if (!uids)
 		goto free_pids;
 
-	gate->alloc =
-		galv_alloc_create(2 * max_conn,
-		                  sizeof(struct galv_unix_gate_ucred_count));
-	if (!gate->alloc)
-		goto free_uids;
+	stroll_falloc_init_block_size(&gate->alloc,
+	                              2 * max_conn,
+	                              sizeof(struct galv_unix_gate_ucred_count),
+	                              stroll_page_size());
 
 	galv_gate_init(&gate->base, &galv_unix_gate_ucred_ops);
 	gate->cnt = 0;
@@ -577,8 +564,6 @@ galv_unix_gate_ucred_init(struct galv_unix_gate_ucred * __restrict gate,
 
 	return 0;
 
-free_uids:
-	stroll_hlist_destroy_buckets(uids);
 free_pids:
 	stroll_hlist_destroy_buckets(pids);
 
@@ -600,7 +585,7 @@ galv_unix_gate_destroy_counts(struct galv_unix_gate_ucred * __restrict gate,
 	                                        cnt,
 	                                        hlist,
 	                                        tmp)
-		stroll_free(gate->alloc, cnt);
+		stroll_falloc_free(&gate->alloc, cnt);
 
 	stroll_hlist_destroy_buckets(buckets);
 }
@@ -612,7 +597,7 @@ galv_unix_gate_ucred_fini(struct galv_unix_gate_ucred * __restrict gate)
 
 	galv_unix_gate_destroy_counts(gate, gate->pids);
 	galv_unix_gate_destroy_counts(gate, gate->uids);
-	stroll_alloc_destroy(gate->alloc);
+	stroll_falloc_fini(&gate->alloc);
 }
 
 #endif /* defined(CONFIG_GALV_GATE) */

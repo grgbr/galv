@@ -29,13 +29,11 @@ struct galv_frag {
 	struct stroll_buff       base;
 	struct stroll_slist_node list;
 	struct galv_buff *       buff;
-	struct stroll_falloc *   alloc;
 };
 
 #define galv_frag_assert_api(_frag) \
 	galv_assert_api(_frag); \
 	galv_assert_api(stroll_buff_capacity(&(_frag)->base)); \
-	galv_assert_api((_frag)->alloc); \
 	galv_assert_api((_frag)->buff); \
 	galv_assert_api(stroll_buff_capacity(&(_frag)->base) <= \
 	                galv_buff_capacity((_frag)->buff))
@@ -81,13 +79,19 @@ extern size_t
 galv_frag_load(struct galv_frag * __restrict fragment,
                struct galv_buff * __restrict buffer);
 
-extern struct galv_frag *
-galv_frag_create(struct stroll_falloc * __restrict alloc,
-                 size_t                            capacity,
-                 struct galv_buff * __restrict     buffer);
-
 extern void
-galv_frag_destroy(struct galv_frag * __restrict fragment);
+galv_frag_init(struct galv_frag * __restrict fragment,
+               size_t                        capacity,
+               struct galv_buff * __restrict buffer);
+
+static inline
+void
+galv_frag_fini(const struct galv_frag * __restrict fragment)
+{
+	galv_frag_assert_api(fragment);
+
+	galv_buff_release(fragment->buff);
+}
 
 /**
  * @internal
@@ -173,22 +177,6 @@ galv_frag_fini_list(struct galv_frag_list * __restrict list)
 {
 	galv_assert_api(list);
 	galv_assert_api(galv_frag_list_empty(list));
-}
-
-/******************************************************************************
- * Fragment allocator
- ******************************************************************************/
-
-extern void
-galv_frag_init_alloc(struct stroll_falloc * __restrict alloc, unsigned int nr);
-
-static inline
-void
-galv_frag_fini_alloc(struct stroll_falloc * __restrict alloc)
-{
-	galv_assert_api(alloc);
-
-	stroll_falloc_fini(alloc);
 }
 
 #endif /* _GALV_LIB_FRAGMENT_H */

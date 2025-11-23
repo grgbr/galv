@@ -14,10 +14,6 @@
 #include <stroll/fbmap.h>
 #include <string.h>
 
-#define galv_sess_assert_intern(_sess) \
-	galv_assert_intern(_sess); \
-	galv_assert_intern((_sess)->conn)
-
 static
 struct galv_buff *
 galv_sess_summon_buff(struct galv_buff_alloc * __restrict alloc)
@@ -707,26 +703,43 @@ galv_sess_fini_msg_queue(struct galv_sess_msg_queue * __restrict queue)
 
 struct galv_sess_conn {
 	struct galv_conn *         conn;
+	unsigned int               msg_cnt;
+	unsigned int               frag_cnt;
+	unsigned int               buff_cnt;
 	struct galv_buff_queue     recv_buffq;
-	struct galv_buff_alloc     buff_alloc;
-	struct stroll_falloc       frag_alloc;
 	struct galv_sess_msg_queue recv_msgq;
-	struct stroll_palloc       msg_fab;
 };
 
-#define galv_sess_assert_api(_sess) \
+#define galv_sess_assert_conn_api(_sess) \
 	galv_assert_api(_sess); \
 	galv_assert_api((_sess)->conn)
+	galv_assert_api((_sess)->msg_cnt <= GALV_SESS_MSG_XCHG_NR); \
+	galv_assert_api((_sess)->frag_cnt <= \
+	                galv_sess_conn_acceptor((_sess)->frag_per_sess); \
+	galv_assert_api((_sess)->buff_cnt <= \
+	                galv_sess_conn_acceptor((_sess)->buff_per_sess)
 
-#define galv_sess_assert_intern(_sess) \
+#define galv_sess_assert_conn_intern(_sess) \
 	galv_assert_intern(_sess); \
 	galv_assert_intern((_sess)->conn)
+	galv_assert_intern((_sess)->msg_cnt <= GALV_SESS_MSG_XCHG_NR); \
+	galv_assert_intern((_sess)->frag_cnt <= \
+	                   galv_sess_conn_acceptor((_sess)->frag_per_sess); \
+	galv_assert_intern((_sess)->buff_cnt <= \
+	                   galv_sess_conn_acceptor((_sess)->buff_per_sess)
+
+static
+struct galv_sess_accept *
+galv_sess_conn_acceptor(const struct galv_sess_conn * __restrict session)
+{
+	return galv_sess_from_accept(galv_conn_acceptor(session->conn));
+}
 
 static
 int
 galv_sess_recv_tail_buff(struct galv_sess_conn * __restrict session)
 {
-	galv_sess_assert_intern(session);
+	galv_sess_assert_conn_intern(session);
 
 	struct galv_buff * buff;
 	size_t             size;
@@ -755,7 +768,7 @@ static
 int
 galv_sess_recv_new_buff(struct galv_sess_conn * __restrict session)
 {
-	galv_sess_assert_intern(session);
+	galv_sess_assert_conn_intern(session);
 
 	struct galv_buff * buff;
 	size_t             size;
@@ -784,7 +797,7 @@ static
 int
 galv_sess_recv_buffs(struct galv_sess_conn * __restrict session)
 {
-	galv_sess_assert_intern(session);
+	galv_sess_assert_conn_intern(session);
 
 	int ret;
 
@@ -807,11 +820,11 @@ static
 struct galv_sess_msg *
 galv_sess_create_msg(struct galv_sess_conn * __restrict session)
 {
-	galv_sess_assert_intern(session);
+	galv_sess_assert_conn_intern(session);
 
 	struct galv_sess_msg * msg;
 
-	msg = stroll_palloc_alloc(&session->msg_fab);
+	msg = stroll_palloc_alloc(&session->msg_alloc);
 	if (!msg) {
 		int err = errno;
 
@@ -834,13 +847,13 @@ void
 galv_sess_destroy_msg(struct galv_sess_conn * __restrict session,
                       struct galv_sess_msg * __restrict  message)
 {
-	galv_sess_assert_intern(session);
+	galv_sess_assert_conn_intern(session);
 	galv_sess_assert_msg_intern(message);
 
 	unsigned int xchg __unused = message->xchg;
 
 	galv_sess_fini_msg(message);
-	stroll_palloc_free(&session->msg_fab, message);
+	stroll_palloc_free(&session->msg_alloc, message);
 
 	galv_debug("session: message destroyed [id:%u]", xchg);
 }
@@ -850,7 +863,7 @@ int
 galv_sess_recv_msg(struct galv_sess_conn * __restrict session,
                    struct galv_sess_msg * __restrict  message)
 {
-	galv_sess_assert_intern(session);
+	galv_sess_assert_conn_intern(session);
 	galv_sess_assert_msg_intern(message);
 	galv_assert_intern(!galv_sess_msg_full(message));
 	galv_assert_intern(&session->recv_buffq);
@@ -962,7 +975,7 @@ static
 int
 galv_sess_recv_msgs(struct galv_sess_conn * __restrict session)
 {
-	galv_sess_assert_intern(session);
+	galv_sess_assert_conn_intern(session);
 
 	int ret;
 
@@ -1149,7 +1162,7 @@ galv_sess_open_conn(struct galv_sess_conn * __restrict session,
 	if (err)
 		return err;
 
-	err = stroll_palloc_init(&session->msg_fab,
+	err = stroll_palloc_init(&session->msg_alloc,
 	                         GALV_SESS_MSG_XCHG_NR,
 	                         sizeof(struct galv_sess_msg));
 	if (err)
@@ -1193,13 +1206,13 @@ static
 void
 galv_sess_close_conn(struct galv_sess_conn * __restrict session)
 {
-	galv_sess_assert_api(session);
+	galv_sess_assert_conn_api(session);
 
 	while (!galv_sess_msg_queue_empty(&session->recv_msgq))
 		galv_sess_destroy_msg(session,
 		                      galv_sess_dqueue_msg(&session->recv_msgq));
 	galv_sess_fini_msg_queue(&session->recv_msgq);
-	stroll_palloc_fini(&session->msg_fab);
+	stroll_palloc_fini(&session->msg_alloc);
 
 	galv_frag_fini_alloc(&session->frag_alloc);
 
@@ -1405,16 +1418,20 @@ static const struct galv_conn_ops galv_sess_conn_ops = {
 	.on_error     = galv_sess_on_error
 };
 
-struct stroll_alloc *
-galv_sess_create_conn_alloc(unsigned int nr, size_t size)
+struct stroll_falloc *
+galv_sess_create_conn_alloc(unsigned int nr,
+                            unsigned int per_block,
+                            size_t       size)
 {
-	return galv_alloc_create(nr, sizeof(struct galv_sess_conn) + size);
+	return stroll_falloc_create_alloc(nr,
+	                                  per_block,
+	                                  sizeof(struct galv_sess_conn) + size);
 }
 
 int
 galv_sess_open_accept(struct galv_sess_accept * __restrict acceptor,
                       struct galv_repo * __restrict        repository,
-                      struct stroll_alloc * __restrict     allocator,
+                      struct stroll_falloc * __restrict    allocator,
                       struct galv_adopt * __restrict       adopter,
                       unsigned int                         backlog,
                       int                                  flags,
@@ -1452,4 +1469,298 @@ galv_sess_close_accept(const struct galv_sess_accept * __restrict acceptor,
 	galv_accept_assert_api(&acceptor->base);
 	galv_assert_api(acceptor->alloc);
 	galv_assert_api(poller);
+}
+
+/******************************************************************************/
+/******************************************************************************/
+/******************************************************************************/
+/******************************************************************************/
+/******************************************************************************/
+
+static
+struct galv_sess_msg *
+galv_sess_create_msg(struct galv_sess_conn * __restrict   session,
+                     struct galv_sess_accept * __restrict acceptor)
+{
+	galv_sess_assert_conn_intern(session);
+	galv_sess_assert_accept_intern(acceptor);
+
+	struct galv_sess_msg * msg;
+	int                    err;
+
+	if (session->msg_cnt < GALV_SESS_MSG_XCHG_NR) {
+		msg = stroll_falloc_alloc(&acceptor->msg_alloc);
+		if (msg) {
+			galv_sess_init_msg(msg);
+			session->msg_cnt++;
+			galv_debug("session: message created");
+			return msg;
+		}
+
+		err = errno;
+	}
+	else
+		err = ENOBUFS;
+
+	galv_ratelim_pinfo(err, "session: cannot allocate message", "");
+
+	errno = err;
+	return NULL;
+}
+
+static
+void
+galv_sess_destroy_msg(struct galv_sess_conn * __restrict   session,
+                      struct galv_sess_accept * __restrict acceptor,
+                      struct galv_sess_msg * __restrict    message)
+{
+	galv_sess_assert_conn_intern(session);
+	galv_assert_intern(session->msg_cnt);
+	galv_sess_assert_accept_intern(acceptor);
+	galv_sess_assert_msg_intern(message);
+
+	unsigned int xchg __unused = message->xchg;
+
+	galv_sess_fini_msg(message);
+	stroll_falloc_free(&acceptor->msg_alloc, message);
+	session->msg_cnt--;
+
+	galv_debug("session: message destroyed [id:%u]", xchg);
+}
+
+static
+struct galv_frag *
+galv_sess_create_frag(struct galv_sess_conn * __restrict   session,
+                      struct galv_sess_accept * __restrict acceptor,
+                      size_t                               capacity,
+                      struct galv_buff * __restrict        buffer);
+{
+	galv_sess_assert_conn_intern(session);
+	galv_sess_assert_accept_intern(acceptor);
+	galv_assert_intern(capacity);
+	galv_assert_intern(buffer);
+	galv_assert_intern(capacity <= galv_buff_capacity(buffer));
+
+	struct galv_frag * frag;
+	int                err;
+
+	if (session->frag_cnt < acceptor->frag_per_sess) {
+		frag = stroll_falloc_alloc(&acceptor->frag_alloc);
+		if (frag) {
+			galv_frag_init(frag, capacity, buffer);
+			session->frag_cnt++;
+			galv_debug("session: fragment created");
+			return frag;
+		}
+
+		err = errno;
+	}
+	else
+		err = ENOBUFS;
+
+	galv_ratelim_pinfo(err, "session: cannot allocate fragment", "");
+
+	errno = err;
+	return NULL;
+}
+
+static
+void
+galv_sess_destroy_frag(struct galv_sess_conn * __restrict   session,
+                       struct galv_sess_accept * __restrict acceptor,
+                       struct galv_frag * __restrict        fragment)
+{
+	galv_sess_assert_conn_intern(session);
+	galv_assert_intern(session->frag_cnt);
+	galv_sess_assert_accept_intern(acceptor);
+	galv_frag_assert_intern(fragment);
+
+	galv_frag_fini(fragment);
+	stroll_falloc_free(&acceptor->frag_alloc, fragment);
+	session->frag_cnt--;
+
+	galv_debug("session: fragment destroyed");
+}
+
+static
+struct galv_buff *
+galv_sess_summon_buff(struct galv_sess_conn * __restrict   session,
+                      struct galv_sess_accept * __restrict acceptor)
+{
+	galv_sess_assert_conn_intern(session);
+	galv_sess_assert_accept_intern(acceptor);
+
+	struct galv_buff * buff;
+	int                err;
+
+	if (session->buff_cnt < acceptor->buff_per_sess) {
+		/*
+		 * FIXME:
+		 * Should we allocate smaller capacities according to current
+		 * maximum segment size or MTU ?
+		 * See description of TCP_MAXSEG in tcp(7).
+		 */
+		buff = galv_buff_summon(&acceptor->buff_alloc,
+		                        GALV_BUFF_DFLT_CAPA);
+		if (buff) {
+			session->buff_cnt++;
+			galv_debug("session: buffer allocated [addr:%p]", buff);
+			return buff;
+		}
+
+		err = errno;
+	}
+	else
+		err = ENOBUFS;
+
+	galv_ratelim_pinfo(err, "session: cannot allocate buffer", "");
+
+	errno = err;
+	return NULL;
+}
+
+static
+void
+galv_sess_release_buff(struct galv_sess_conn * __restrict session,
+                       struct galv_buff * __restrict      buffer)
+{
+	galv_sess_assert_conn_intern(session);
+	galv_assert_intern(session->buff_cnt);
+	galv_buff_assert_intern(buffer);
+
+	galv_buff_release(buffer);
+	galv_debug("session: buffer released [addr:%p]", buffer);
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+struct galv_sess_conf {
+	unsigned int backlog;
+	size_t       max_pload;
+	size_t       buff_capa;
+	unsigned int buff_per_blk;
+};
+
+int
+galv_sess_open_accept(struct galv_sess_accept * __restrict acceptor,
+                      struct galv_repo * __restrict        repository,
+                      struct galv_adopt * __restrict       adopter,
+                      int                                  flags,
+                      size_t                               max_pload,
+                      const struct upoll * __restrict      poller)
+{
+	galv_assert_api(acceptor);
+	galv_repo_assert_api(repository);
+	galv_assert_api(allocator);
+	galv_adopt_assert_api(adopter);
+	galv_assert_api(backlog <= INT_MAX);
+	galv_assert_api(!(flags & ~(SOCK_NONBLOCK | SOCK_CLOEXEC)));
+	galv_assert_api(poller);
+
+	int ret;
+
+	ret = galv_accept_open(&acceptor->base,
+	                       repository,
+	                       adopter,
+	                       config->backlog,
+	                       &galv_sess_conn_ops,
+	                       flags,
+	                       poller);
+	if (ret)
+		return ret;
+
+	acceptor->alloc = allocator;
+
+
+	uint64_t max_buff = (uint64_t)GALV_ACCEPT_UNBOUND_CONN_NR;
+	uint64_t max_frag = (uint64_t)GALV_ACCEPT_UNBOUND_CONN_NR;
+	uint64_t max_msg  = (uint64_t)GALV_ACCEPT_UNBOUND_CONN_NR;
+
+	buff_per_sess = galv_sess_calc_buff_nr(config->max_pload,
+	                                       config->buff_capa);
+	frag_per_sess = stroll_max(buff_per_sess, GALV_SESS_MSG_XCHG_NR);
+
+	conn_nr = galv_accept_conn_nr(&acceptor->base);
+	if (conn_nr != GALV_ACCEPT_UNBOUND_CONN_NR) {
+		max_buff = stroll_max((uint64_t)buff_per_sess *
+		                      (uint64_t)conn_nr,
+		                      (uint64_t)UINT_MAX);
+		max_frag = stroll_max((uint64_t)frag_per_sess *
+		                      (uint64_t)conn_nr,
+		                      (uint64_t)UINT_MAX);
+		max_msg = stroll_max((uint64_t)GALV_SESS_MSG_XCHG_NR *
+		                     (uint64_t)conn_nr,
+		                     (uint64_t)UINT_MAX);
+	}
+	else {
+		max_buff = (uint64_t)GALV_ACCEPT_UNBOUND_CONN_NR;
+		max_frag = (uint64_t)GALV_ACCEPT_UNBOUND_CONN_NR;
+		max_msg = (uint64_t)GALV_ACCEPT_UNBOUND_CONN_NR;
+	}
+
+
+	stroll_falloc_init_per_block(&acceptor->buff_alloc,
+	                             (unsigned int)max_buff,
+	                             config->buff_capa,
+	                             config->buff_per_blk);
+
+	stroll_falloc_init_block_size(&acceptor->msg_alloc,
+	                             (unsigned int)max_msg,
+	                             sizeof(struct galv_sess_msg),
+	                             stroll_page_size());
+
+	stroll_falloc_init_block_size(&acceptor->frag_alloc,
+	                             (unsigned int)max_frag,
+	                             sizeof(struct galv_frag),
+	                             stroll_page_size());
+
+	acceptor->buff_per_sess = buff_per_sess;
+
+	stroll_falloc_init_block_size(&acceptor->sess_alloc,
+	                             (unsigned int)conn_nr,
+	                             session_size,
+	                             stroll_page_size());
+
+	return 0;
 }

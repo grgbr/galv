@@ -8,7 +8,7 @@
 #include "common.h"
 #include "galv/unix.h"
 #include "galv/accept.h"
-#include <stroll/alloc.h>
+#include "galv/alloc.h"
 
 #define GALVSMPL_DISC_PATH           "sock"
 #define GALVSMPL_DISC_BACKLOG        16
@@ -19,9 +19,9 @@
 
 static
 int
-galvsmpl_disc_on_may_xfer(struct galv_conn * __restrict   connection,
-                          uint32_t                        events,
-                          const struct upoll * __restrict poller)
+galvsmpl_disc_on_may_xfer(struct galv_conn *   connection,
+                          uint32_t             events,
+                          const struct upoll * poller)
 {
 	unsigned int cnt = GALVSMPL_DISC_BULK_NR;
 	static char  buff[1024];
@@ -75,9 +75,9 @@ eagain:
 
 static
 int
-galvsmpl_disc_on_connect(struct galv_conn * __restrict   connection,
-                         uint32_t                        events __unused,
-                         const struct upoll * __restrict poller)
+galvsmpl_disc_on_connect(struct galv_conn *   connection,
+                         uint32_t             events __unused,
+                         const struct upoll * poller)
 {
 	int err;
 
@@ -96,9 +96,9 @@ galvsmpl_disc_on_connect(struct galv_conn * __restrict   connection,
 
 static
 int
-galvsmpl_disc_on_send_shut(struct galv_conn * __restrict   connection,
-                           uint32_t                        events __unused,
-                           const struct upoll * __restrict poller)
+galvsmpl_disc_on_send_shut(struct galv_conn *   connection,
+                           uint32_t             events __unused,
+                           const struct upoll * poller)
 {
 	galvsmpl_debug("connection transmit end shut down: closing..");
 
@@ -107,9 +107,9 @@ galvsmpl_disc_on_send_shut(struct galv_conn * __restrict   connection,
 
 static
 int
-galvsmpl_disc_on_recv_shut(struct galv_conn * __restrict   connection,
-                           uint32_t                        events __unused,
-                           const struct upoll * __restrict poller)
+galvsmpl_disc_on_recv_shut(struct galv_conn *   connection,
+                           uint32_t             events __unused,
+                           const struct upoll * poller)
 {
 	galvsmpl_debug("connection receive end shut down: closing..");
 
@@ -117,19 +117,9 @@ galvsmpl_disc_on_recv_shut(struct galv_conn * __restrict   connection,
 }
 
 static
-int
-galvsmpl_disc_halt(struct galv_conn *   connection,
-                   const struct upoll * poller)
-{
-	galvsmpl_debug("connection halt requested: closing..");
-
-	return galv_conn_close(connection, poller);
-}
-
-static
 void
-galvsmpl_disc_close(struct galv_conn * __restrict   connection,
-                    const struct upoll * __restrict poller)
+galvsmpl_disc_close(struct galv_conn *   connection,
+                    const struct upoll * poller)
 {
 	/*
 	 * Unregister from poller since we registered at connect time, see
@@ -140,9 +130,9 @@ galvsmpl_disc_close(struct galv_conn * __restrict   connection,
 
 static
 int
-galvsmpl_disc_on_error(struct galv_conn * __restrict   connection __unused,
-                       uint32_t                        events __unused,
-                       const struct upoll * __restrict poller __unused)
+galvsmpl_disc_on_error(struct galv_conn *   connection __unused,
+                       uint32_t             events __unused,
+                       const struct upoll * poller __unused)
 {
 	galvsmpl_debug("unexpected connection socket error");
 
@@ -161,9 +151,9 @@ static const struct galv_conn_ops galvsmpl_disc_conn_ops = {
 
 static
 int
-galvsmpl_loop(struct galv_repo * __restrict   repository,
-              struct galv_accept * __restrict acceptor,
-              struct upoll * __restrict       poller)
+galvsmpl_loop(struct galv_repo *   repository,
+              struct galv_accept * acceptor,
+              struct upoll *       poller)
 {
 	struct galvsmpl_sigchan sigs;
 	int                     ret;
@@ -209,35 +199,29 @@ galvsmpl_loop(struct galv_repo * __restrict   repository,
 	return ret;
 }
 
+static const struct galv_unix_adopt_conf galvsmpl_disc_conf =
+	GALV_UNIX_ADOPT_CONF(GALVSMPL_DISC_PATH, GALVSMPL_DISC_CONN_NR);
+
 int
 main(void)
 {
-	struct stroll_alloc *   alloc;
-	struct galv_unix_adopt  adopt;
-	struct upoll            poll;
-	struct galv_repo        repo = GALV_REPO_INIT(repo,
-	                                              GALVSMPL_DISC_CONN_NR);
-	struct galv_accept      accept;
-	int                     ret;
+	struct galv_unix_adopt adopt;
+	struct upoll           poll;
+	struct galv_repo       repo = GALV_REPO_INIT(repo,
+	                                             GALVSMPL_DISC_CONN_NR);
+	struct galv_accept     accept;
+	int                    ret;
 
 	galvsmpl_init();
 
-	alloc = galv_unix_create_conn_alloc(GALVSMPL_DISC_CONN_NR);
-	if (!alloc) {
-		ret = -errno;
-		galvsmpl_perr(errno, "failed to create UNIX socket allocator");
-		goto out;
-	}
-
 	ret = galv_unix_adopt_open(&adopt,
-	                           GALVSMPL_DISC_PATH,
 	                           SOCK_STREAM,
 	                           SOCK_CLOEXEC,
-	                           alloc,
-	                           GALV_GATE_DUMMY);
+	                           GALV_GATE_DUMMY,
+	                           &galvsmpl_disc_conf);
 	if (ret) {
 		galvsmpl_perr(errno, "failed to create UNIX socket adopter");
-		goto destroy_alloc;
+		goto fini;
 	}
 
 	/* Max number of connections + 1 for acceptor / adopter socket. */
@@ -270,10 +254,8 @@ close_adopt:
 		ret = galv_unix_adopt_close(&adopt);
 	else
 		galv_unix_adopt_close(&adopt);
-destroy_alloc:
-	stroll_alloc_destroy(alloc);
+fini:
 	galv_repo_fini(&repo);
-out:
 	galvsmpl_fini();
 
 	return !ret ? EXIT_SUCCESS : EXIT_FAILURE;

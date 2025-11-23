@@ -9,14 +9,14 @@
 #define _GALV_PRIV_ADOPT_H
 
 #include <galv/cdefs.h>
+#include <stroll/falloc.h>
 
 struct galv_adopt_ops;
-struct stroll_alloc;
 
 struct galv_adopt {
 	const struct galv_adopt_ops * ops;
 	int                           fd;
-	struct stroll_alloc *         alloc;
+	struct stroll_falloc          alloc;
 	struct galv_gate *            gate;
 };
 

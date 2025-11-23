@@ -7,108 +7,6 @@
 
 #include "galv/buffer.h"
 #include "common.h"
-#include <stroll/palloc.h>
-#include <stroll/falloc.h>
-#include <stroll/lalloc.h>
-
-/******************************************************************************
- * Network buffer allocator handling
- ******************************************************************************/
-
-#define galv_buff_assert_alloc_intern(_alloc) \
-	galv_assert_intern((_alloc)->stroll); \
-	galv_assert_intern((_alloc)->capa >= STROLL_BUFF_CAPACITY_MIN); \
-	galv_assert_intern((_alloc)->capa <= STROLL_BUFF_CAPACITY_MAX)
-
-static
-struct galv_buff *
-galv_buff_alloc(struct galv_buff_alloc * __restrict alloc)
-{
-	galv_buff_assert_alloc_intern(alloc);
-
-	return stroll_alloc(alloc->stroll);
-}
-
-static
-void
-galv_buff_free(struct galv_buff_alloc * __restrict alloc,
-               struct galv_buff * __restrict       buffer)
-{
-	galv_buff_assert_alloc_intern(alloc);
-	galv_assert_intern(buffer);
-
-	return stroll_free(alloc->stroll, buffer);
-}
-
-int
-galv_buff_init_palloc(struct galv_buff_alloc * __restrict alloc,
-                      unsigned int                        nr,
-                      size_t                              size)
-{
-	galv_assert_api(alloc);
-	galv_assert_api(nr);
-	galv_assert_api(size);
-
-	struct stroll_alloc * stroll;
-
-	stroll = stroll_palloc_create_alloc(nr,
-	                                    sizeof(struct galv_buff) + size);
-	if (!stroll)
-		return -errno;
-
-	alloc->stroll = stroll;
-	alloc->capa = size;
-
-	return 0;
-}
-
-int
-galv_buff_init_falloc(struct galv_buff_alloc * __restrict alloc,
-                      unsigned int                        nr,
-                      unsigned int                        per_block,
-                      size_t                              size)
-{
-	galv_assert_api(alloc);
-	galv_assert_api(nr);
-	galv_assert_api(per_block);
-	galv_assert_api(nr > per_block);
-	galv_assert_api(size);
-
-	struct stroll_alloc * stroll;
-
-	stroll = stroll_falloc_create_alloc(nr,
-	                                    per_block,
-	                                    sizeof(struct galv_buff) + size);
-	if (!stroll)
-		return -errno;
-
-	alloc->stroll = stroll;
-	alloc->capa = size;
-
-	return 0;
-}
-
-int
-galv_buff_init_lalloc(struct galv_buff_alloc * __restrict alloc,
-                      unsigned int                        nr,
-                      size_t                              size)
-{
-	galv_assert_api(alloc);
-	galv_assert_api(nr);
-	galv_assert_api(size);
-
-	struct stroll_alloc * stroll;
-
-	stroll = stroll_lalloc_create_alloc(nr,
-	                                    sizeof(struct galv_buff) + size);
-	if (!stroll)
-		return -errno;
-
-	alloc->stroll = stroll;
-	alloc->capa = size;
-
-	return 0;
-}
 
 /******************************************************************************
  * Network buffer queue handling
@@ -208,17 +106,21 @@ galv_buff_grow_head(struct galv_buff * __restrict buffer, size_t bytes)
 }
 
 struct galv_buff *
-galv_buff_summon(struct galv_buff_alloc * __restrict alloc)
+galv_buff_summon(struct stroll_falloc * __restrict alloc, size_t capacity)
 {
-	galv_buff_assert_alloc_intern(alloc);
+	galv_assert_api(alloc);
+	galv_assert_api(capacity <= stroll_falloc_chunk_size(alloc));
 
 	struct galv_buff * buff;
 
-	buff = galv_buff_alloc(alloc);
+	buff = stroll_falloc_alloc(alloc);
 	if (!buff)
 		return NULL;
 
-	stroll_buff_setup(&buff->base, galv_buff_alloc_capacity(alloc), 0, 0);
+	stroll_buff_setup(&buff->base,
+	                  capacity ? capacity : stroll_falloc_chunk_size(alloc),
+	                  0,
+	                  0);
 	buff->queue = NULL;
 	buff->ref = 1;
 	buff->alloc = alloc;
@@ -233,5 +135,5 @@ galv_buff_release(struct galv_buff * __restrict buffer)
 	galv_assert_api(!buffer->queue);
 
 	if (!(--buffer->ref))
-		galv_buff_free(buffer->alloc, buffer);
+		stroll_falloc_free(buffer->alloc, buffer);
 }

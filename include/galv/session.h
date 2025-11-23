@@ -77,8 +77,10 @@ galv_sess_drop_msg(struct galv_sess_conn * __restrict session,
  * Session connection allocator
  ******************************************************************************/
 
-extern struct stroll_alloc *
-galv_sess_create_conn_alloc(unsigned int nr, size_t size)
+extern struct stroll_falloc *
+galv_sess_create_conn_alloc(unsigned int nr,
+                            unsigned int per_block,
+                            size_t       size)
 	__export_public;
 
 /******************************************************************************

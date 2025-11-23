@@ -8,7 +8,7 @@
 #include "common.h"
 #include "galv/unix.h"
 #include "galv/accept.h"
-#include <stroll/alloc.h>
+#include "galv/alloc.h"
 
 #define GALVSMPL_ECHO_PATH           "sock"
 #define GALVSMPL_ECHO_BACKLOG        16
@@ -393,10 +393,12 @@ galvsmpl_loop(struct galv_repo *   repository,
 	return ret;
 }
 
+static const struct galv_unix_adopt_conf galvsmpl_echo_conf =
+	GALV_UNIX_ADOPT_CONF(GALVSMPL_ECHO_PATH, GALVSMPL_ECHO_CONN_NR);
+
 int
 main(void)
 {
-	struct stroll_alloc *   alloc;
 	struct galv_unix_adopt  adopt;
 	struct upoll            poll;
 	struct galv_repo        repo = GALV_REPO_INIT(repo,
@@ -406,22 +408,14 @@ main(void)
 
 	galvsmpl_init();
 
-	alloc = galv_unix_create_conn_alloc(GALVSMPL_ECHO_CONN_NR);
-	if (!alloc) {
-		ret = -errno;
-		galvsmpl_perr(errno, "failed to create UNIX socket allocator");
-		goto out;
-	}
-
 	ret = galv_unix_adopt_open(&adopt,
-	                           GALVSMPL_ECHO_PATH,
 	                           SOCK_STREAM,
 	                           SOCK_CLOEXEC,
-	                           alloc,
-	                           GALV_GATE_DUMMY);
+	                           GALV_GATE_DUMMY,
+	                           &galvsmpl_echo_conf);
 	if (ret) {
 		galvsmpl_perr(errno, "failed to create UNIX socket adopter");
-		goto destroy_alloc;
+		goto fini;
 	}
 
 	/* Max number of connections + 1 for acceptor / adopter socket. */
@@ -454,10 +448,8 @@ close_adopt:
 		ret = galv_unix_adopt_close(&adopt);
 	else
 		galv_unix_adopt_close(&adopt);
-destroy_alloc:
-	stroll_alloc_destroy(alloc);
+fini:
 	galv_repo_fini(&repo);
-out:
 	galvsmpl_fini();
 
 	return !ret ? EXIT_SUCCESS : EXIT_FAILURE;
