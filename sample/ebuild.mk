@@ -9,6 +9,7 @@ include ../common.mk
 
 smpl-ldflags := \
 	$(common-ldflags) \
+	-L$(BUILDDIR)/../lib \
 	-Wl,-whole-archive $(BUILDDIR)/builtin_smpl.a -Wl,-no-whole-archive \
 	-Wl,-z,start-stop-visibility=hidden \
 	-lgalv
