@@ -8,7 +8,6 @@
 #include "common.h"
 #include "galv/unix.h"
 #include "galv/accept.h"
-#include "galv/alloc.h"
 
 #define GALVSMPL_ECHO_PATH           "sock"
 #define GALVSMPL_ECHO_BACKLOG        16
