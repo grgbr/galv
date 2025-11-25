@@ -244,7 +244,7 @@ galv_accept_open(struct galv_accept * __restrict         acceptor,
 	galv_adopt_assert_api(adopter);
 	galv_assert_api(backlog <= INT_MAX);
 	galv_conn_assert_ops_api(operations);
-	galv_assert_api(!(flags & ~(SOCK_NONBLOCK | SOCK_CLOEXEC)));
+	galv_assert_api(!(flags & ETUX_SOCK_ACCEPT_INVALID_FLAGS));
 	galv_assert_api(poller);
 
 	int fd = galv_adopt_fd(adopter);

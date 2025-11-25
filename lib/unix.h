@@ -63,6 +63,10 @@ struct galv_unix_conn {
 
 #define galv_unix_assert_adopt_conf_api(_conf) \
 	galv_assert_api(_conf); \
+	galv_assert_api(((_conf)->sock_type == SOCK_STREAM) || \
+			((_conf)->sock_type == SOCK_SEQPACKET)); \
+	galv_assert_api(!((_conf)->sock_flags & \
+	                  ETUX_SOCK_ACCEPT_INVALID_FLAGS)); \
 	galv_assert_api(!unsk_is_named_path_ok((_conf)->bind_path)); \
 	galv_assert_api((_conf)->max_conn)
 

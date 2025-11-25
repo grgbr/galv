@@ -8,8 +8,7 @@
 #ifndef _GALV_LIB_FRAGMENT_H
 #define _GALV_LIB_FRAGMENT_H
 
-#include <galv/buffer.h>
-#include <stroll/falloc.h>
+#include "buffer.h"
 
 /**
  * @internal
@@ -37,6 +36,13 @@ struct galv_frag {
 	galv_assert_api((_frag)->buff); \
 	galv_assert_api(stroll_buff_capacity(&(_frag)->base) <= \
 	                galv_buff_capacity((_frag)->buff))
+
+#define galv_frag_assert_intern(_frag) \
+	galv_assert_intern(_frag); \
+	galv_assert_intern(stroll_buff_capacity(&(_frag)->base)); \
+	galv_assert_intern((_frag)->buff); \
+	galv_assert_intern(stroll_buff_capacity(&(_frag)->base) <= \
+	                   galv_buff_capacity((_frag)->buff))
 
 static inline
 size_t

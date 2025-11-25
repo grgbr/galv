@@ -27,34 +27,52 @@
  ******************************************************************************/
 
 struct galv_unix_adopt_conf {
+	int          sock_type;
+	int          sock_flags;
 	const char * bind_path;
 	unsigned int max_conn;
 };
 
-#define GALV_UNIX_ADOPT_CONF(_bind_path, _max_conn) \
+#define GALV_UNIX_ADOPT_CONF(_sock_type, _sock_flags, _bind_path, _max_conn) \
 	{ \
-		.bind_path = _bind_path, \
-		.max_conn  = _max_conn \
+		.sock_type      = compile_eval( \
+			((_sock_type) == SOCK_STREAM) || \
+			((_sock_type) == SOCK_SEQPACKET), \
+			_sock_type, \
+			"invalid UNIX adopter socket type"), \
+		.sock_flags     = compile_eval( \
+			!((_sock_flags) & ETUX_SOCK_ACCEPT_INVALID_FLAGS), \
+			_sock_flags, \
+			"invalid UNIX adopter socket flags"), \
+		.bind_path = compile_eval(_bind_path != NULL, \
+		                          _bind_path, \
+		                          "invalid adopter bind path"), \
+		.max_conn  = compile_eval( \
+			_max_conn, \
+			_max_conn, \
+			"invalid adopter maximum number of connections") \
 	}
 
-static inline
-int
-galv_unix_adopt_setup_conf(struct galv_unix_adopt_conf * __restrict config,
-                           const char * __restrict                  bind_path,
-                           unsigned int                             max_conn)
-{
-	galv_assert_api(config);
-	galv_assert_api(!unsk_is_named_path_ok(bind_path));
-	galv_assert_api(max_conn);
+extern int
+galv_unix_adopt_config_path(struct galv_unix_adopt_conf * __restrict config,
+                            const char * __restrict                  string)
+	__export_public;
 
-	config->bind_path = bind_path;
-	config->max_conn = max_conn;
-}
+extern int
+galv_unix_adopt_config_max_conn(struct galv_unix_adopt_conf * __restrict config,
+                                const char * __restrict                  string)
+	__export_public;
+
+extern void
+galv_unix_adopt_config(struct galv_unix_adopt_conf * __restrict config,
+                       int                                      sock_type,
+                       int                                      sock_flags,
+                       const char * __restrict                  bind_path,
+                       unsigned int                             max_conn)
+	__export_public;
 
 extern int
 galv_unix_adopt_open(struct galv_unix_adopt * __restrict            adopter,
-                     int                                            type,
-                     int                                            flags,
                      struct galv_gate * __restrict                  gate,
                      const struct galv_unix_adopt_conf * __restrict config)
 	__export_public;

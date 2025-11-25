@@ -9,8 +9,7 @@
 #define _GALV_PRIV_SESSION_H
 
 #include <galv/accept.h>
-
-struct stroll_alloc;
+#include <stroll/falloc.h>
 
 struct galv_sess_accept {
 	struct galv_accept   base;

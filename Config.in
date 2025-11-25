@@ -86,6 +86,22 @@ config GALV_SESS
 	help
 	  Build Galv library with session protocol support.
 
+config GALV_SESS_PLOAD_SIZE_MAX
+	int "Maximum session payload size"
+	depends on GALV_SESS
+	range 8 1048576
+	default 131072
+	help
+	  Size in bytes of the largest session message user payload supported.
+
+config GALV_SESS_BUFF_CAPA_MAX
+	int "Maximum session buffer size"
+	depends on GALV_SESS
+	range 8 131072
+	default 4096
+	help
+	  Size in bytes of the largest session buffer supported.
+
 config GALV_SMPL
 	bool "Sample code"
 	default n

@@ -393,7 +393,10 @@ galvsmpl_loop(struct galv_repo *   repository,
 }
 
 static const struct galv_unix_adopt_conf galvsmpl_echo_conf =
-	GALV_UNIX_ADOPT_CONF(GALVSMPL_ECHO_PATH, GALVSMPL_ECHO_CONN_NR);
+	GALV_UNIX_ADOPT_CONF(SOCK_STREAM,
+	                     SOCK_CLOEXEC,
+	                     GALVSMPL_ECHO_PATH,
+	                     GALVSMPL_ECHO_CONN_NR);
 
 int
 main(void)
@@ -408,8 +411,6 @@ main(void)
 	galvsmpl_init();
 
 	ret = galv_unix_adopt_open(&adopt,
-	                           SOCK_STREAM,
-	                           SOCK_CLOEXEC,
 	                           GALV_GATE_DUMMY,
 	                           &galvsmpl_echo_conf);
 	if (ret) {

@@ -16,7 +16,7 @@ galv_adopt_create_conn(const struct galv_adopt * __restrict    adopter,
 {
 	galv_adopt_assert_api(adopter);
 	galv_assert_api(operations);
-	galv_assert_api(!(flags & ~(SOCK_NONBLOCK | SOCK_CLOEXEC)));
+	galv_assert_api(!(flags & ETUX_SOCK_ACCEPT_INVALID_FLAGS));
 	galv_assert_api(acceptor);
 
 	struct galv_conn * conn;

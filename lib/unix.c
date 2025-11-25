@@ -8,6 +8,7 @@
 #include "unix.h"
 #include <stroll/page.h>
 #include <stroll/hlist.h>
+#include <utils/string.h>
 
 /******************************************************************************
  * Unix connection adopter handling
@@ -21,7 +22,7 @@ galv_unix_accept(int                                 fd,
 {
 	galv_assert_intern(fd >= 0);
 	galv_assert_intern(peer);
-	galv_assert_intern(!(flags & ~(SOCK_NONBLOCK | SOCK_CLOEXEC)));
+	galv_assert_intern(!(flags & ETUX_SOCK_ACCEPT_INVALID_FLAGS));
 
 	int       sk;
 	socklen_t sz = sizeof(peer->cred);
@@ -46,7 +47,7 @@ galv_unix_adopt_create_conn(const struct galv_adopt * __restrict    adopter,
 {
 	galv_unix_assert_adopt_api((const struct galv_unix_adopt *)adopter);
 	galv_conn_assert_ops_intern(operations);
-	galv_assert_intern(!(flags & ~(SOCK_NONBLOCK | SOCK_CLOEXEC)));
+	galv_assert_intern(!(flags & ETUX_SOCK_ACCEPT_INVALID_FLAGS));
 	galv_accept_assert_intern(acceptor);
 
 	struct galv_unix_endpt  peer;
@@ -88,7 +89,7 @@ galv_unix_adopt_create_conn(const struct galv_adopt * __restrict    adopter,
 	galv_conn_setup(&unc->base, fd, operations, acceptor);
 	unc->peer = peer;
 
-	galv_debug("unix: connection created [pid:%d, uid:%d]",
+	galv_debug("unix: connection created [pid:%d uid:%d]",
 	           peer.cred.pid,
 	           peer.cred.uid);
 
@@ -118,7 +119,7 @@ galv_unix_adopt_destroy_conn(const struct galv_adopt * __restrict adopter,
 	ret = etux_sock_close(connection->fd);
 	stroll_falloc_free(galv_adopt_allocator(adopter), connection);
 	if (!ret || (ret == -EINTR)) {
-		galv_debug("unix: connection destroyed [pid:%d, uid:%d]",
+		galv_debug("unix: connection destroyed [pid:%d uid:%d]",
 		           cred.pid,
 		           cred.uid);
 		return ret;
@@ -135,15 +136,59 @@ static const struct galv_adopt_ops galv_unix_adopt_ops = {
 };
 
 int
+galv_unix_adopt_config_path(struct galv_unix_adopt_conf * __restrict config,
+                            const char * __restrict                  string)
+{
+	galv_assert_api(config);
+	galv_assert_api(string);
+
+	int err;
+
+	err = unsk_is_named_path_ok(string);
+	if (!err) {
+		config->bind_path = string;
+		return 0;
+	}
+
+	return err;
+}
+
+int
+galv_unix_adopt_config_max_conn(struct galv_unix_adopt_conf * __restrict config,
+                                const char * __restrict                  string)
+{
+	galv_assert_api(config);
+	galv_assert_api(string);
+
+	return ustr_parse_uint_range(string, &config->max_conn, 1, UINT_MAX);
+}
+
+void
+galv_unix_adopt_config(struct galv_unix_adopt_conf * __restrict config,
+                       int                                      sock_type,
+                       int                                      sock_flags,
+                       const char * __restrict                  bind_path,
+                       unsigned int                             max_conn)
+{
+	galv_assert_api(config);
+	galv_assert_api((sock_type == SOCK_STREAM) ||
+	                (sock_type == SOCK_SEQPACKET));
+	galv_assert_api(!(sock_flags & ETUX_SOCK_ACCEPT_INVALID_FLAGS));
+	galv_assert_api(!unsk_is_named_path_ok(bind_path));
+	galv_assert_api(max_conn);
+
+	config->sock_type = sock_type;
+	config->sock_flags = sock_flags;
+	config->bind_path = bind_path;
+	config->max_conn = max_conn;
+}
+
+int
 galv_unix_adopt_open(struct galv_unix_adopt * __restrict            adopter,
-                     int                                            type,
-                     int                                            flags,
                      struct galv_gate * __restrict                  gate,
                      const struct galv_unix_adopt_conf * __restrict config)
 {
 	galv_assert_api(adopter);
-	galv_assert_api((type == SOCK_STREAM) || (type == SOCK_SEQPACKET));
-	galv_assert_api(!(flags & ~(SOCK_NONBLOCK | SOCK_CLOEXEC)));
 	galv_gate_assert_api(gate);
 	galv_unix_assert_adopt_conf_api(config);
 
@@ -151,7 +196,7 @@ galv_unix_adopt_open(struct galv_unix_adopt * __restrict            adopter,
 	int          ret;
 	const char * msg __unused;
 
-	fd = unsk_open(type, SOCK_NONBLOCK | flags);
+	fd = unsk_open(config->sock_type, SOCK_NONBLOCK | config->sock_flags);
 	if (fd < 0) {
 		ret = fd;
 		msg = "failed to create socket";
