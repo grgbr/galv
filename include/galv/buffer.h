@@ -124,10 +124,16 @@ static inline
 struct galv_buff *
 galv_buff_next(struct galv_buff * __restrict buffer)
 {
+	galv_buff_assert_api(buffer);
+
 	struct stroll_slist_node * next = stroll_slist_next(&buffer->node);
 
 	return next ? stroll_slist_entry(next, struct galv_buff, node) : NULL;
 }
+
+extern void
+galv_buff_reset(struct galv_buff * __restrict buffer)
+	__export_public;
 
 static inline
 struct galv_buff *
@@ -146,7 +152,7 @@ extern struct galv_buff *
 galv_buff_summon(struct stroll_falloc * __restrict alloc, size_t capacity)
 	__export_public;
 
-extern void
+extern unsigned long
 galv_buff_release(struct galv_buff * __restrict buffer)
 	__export_public;
 
@@ -159,10 +165,24 @@ struct galv_buff_queue {
 	size_t              busy;
 };
 
-#define galv_buff_assert_queue_api(_buffq) \
-	galv_assert_api(_buffq); \
-	galv_assert_api((_buffq)->cnt ^ stroll_slist_empty(&(_buffq)->base)); \
-	galv_assert_api((_buffq)->busy ^ stroll_slist_empty(&(_buffq)->base))
+#define galv_buff_assert_queue_api(_queue) \
+	galv_assert_api(_queue); \
+	galv_assert_api((_queue)->cnt ^ stroll_slist_empty(&(_queue)->base)); \
+	galv_assert_api( \
+		(_queue)->busy ^ \
+		(stroll_slist_empty(&(_queue)->base) || \
+		 !stroll_buff_busy(&stroll_slist_first_entry(&(_queue)->base, \
+		                                             struct galv_buff, \
+		                                             node)->base)))
+
+static inline
+size_t
+galv_buff_queue_busy(const struct galv_buff_queue * __restrict queue)
+{
+	galv_buff_assert_queue_api(queue);
+
+	return queue->busy;
+}
 
 static inline
 bool
@@ -170,7 +190,7 @@ galv_buff_queue_empty(const struct galv_buff_queue * __restrict queue)
 {
 	galv_buff_assert_queue_api(queue);
 
-	return stroll_slist_empty(&queue->base);
+	return !galv_buff_queue_busy(queue);
 }
 
 static inline
@@ -183,23 +203,14 @@ galv_buff_queue_count(const struct galv_buff_queue * __restrict queue)
 }
 
 static inline
-size_t
-galv_buff_queue_busy(const struct galv_buff_queue * __restrict queue)
-{
-	galv_buff_assert_queue_api(queue);
-
-	return queue->busy;
-}
-
-static inline
 struct galv_buff *
 galv_buff_queue_first(const struct galv_buff_queue * __restrict queue)
 {
 	galv_buff_assert_queue_api(queue);
-	galv_assert_api(!galv_buff_queue_empty(queue));
-	galv_assert_api(queue->busy);
+	galv_assert_api(!stroll_slist_empty(&queue->base));
+	galv_assert_api(queue->cnt);
 
-	return stroll_slist_first_entry(&queue->base, struct galv_buff, queue);
+	return stroll_slist_first_entry(&queue->base, struct galv_buff, node);
 }
 
 static inline
@@ -207,10 +218,10 @@ struct galv_buff *
 galv_buff_queue_last(const struct galv_buff_queue * __restrict queue)
 {
 	galv_buff_assert_queue_api(queue);
-	galv_assert_api(!galv_buff_queue_empty(queue));
-	galv_assert_api(queue->busy);
+	galv_assert_api(!stroll_slist_empty(&queue->base));
+	galv_assert_api(queue->cnt);
 
-	return stroll_slist_last_entry(&queue->base, struct galv_buff, queue);
+	return stroll_slist_last_entry(&queue->base, struct galv_buff, node);
 }
 
 extern void
@@ -239,6 +250,7 @@ galv_buff_fini_queue(struct galv_buff_queue * __restrict queue)
 {
 	galv_buff_assert_queue_api(queue);
 	galv_assert_api(galv_buff_queue_empty(queue));
+	galv_assert_api(stroll_slist_empty(&queue->base));
 	galv_assert_api(!queue->cnt);
 	galv_assert_api(!queue->busy);
 }

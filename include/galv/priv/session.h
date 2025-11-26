@@ -12,13 +12,14 @@
 #include <stroll/falloc.h>
 
 struct galv_sess_accept {
-	struct galv_accept   base;
-	struct stroll_falloc msg_alloc;
-	unsigned int         frag_per_sess;
-	struct stroll_falloc frag_alloc;
-	unsigned int         buff_per_sess;
-	struct stroll_falloc buff_alloc;
-	struct stroll_falloc sess_alloc;
+	struct galv_accept           base;
+	const struct galv_sess_ops * ops;
+	struct stroll_falloc         msg_alloc;
+	unsigned int                 frag_per_sess;
+	struct stroll_falloc         frag_alloc;
+	unsigned int                 buff_per_sess;
+	struct stroll_falloc         buff_alloc;
+	struct stroll_falloc         sess_alloc;
 };
 
 #endif /* _GALV_PRIV_SESSION_H */

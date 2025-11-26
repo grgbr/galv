@@ -124,7 +124,7 @@ config GALV_SMPL_ECHO_SRV
 	help
 	  Build Galv library with echo service usage sample code.
 
-config GALV_SMPL_SESS
+config GALV_SMPL_SESS_SRV
 	bool "Session sample code"
 	depends on GALV_SMPL
 	select GALV_UNIX

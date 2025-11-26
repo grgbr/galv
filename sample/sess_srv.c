@@ -5,106 +5,145 @@
  * Copyright (C) 2017-2025 Grégor Boirie <gregor.boirie@free.fr>
  ******************************************************************************/
 
-#include "galv/repo.h"
-#include "galv/fabric.h"
+#include "common.h"
 #include "galv/unix.h"
-#include <elog/elog.h>
+#include "galv/session.h"
 
 #define GALVSMPL_SESS_PATH           "sock"
 #define GALVSMPL_SESS_BACKLOG        16
 #define GALVSMPL_SESS_CONN_NR        (32U)
 #define GALVSMPL_SESS_PERPID_CONN_NR (2U)
-#define GALVSMPL_SESS_PERUID_CONN_NR (2U)
+#define GALVSMPL_SESS_PERUID_CONN_NR (16U)
+#define GALVSMPL_SESS_PLOAD_MAX      (32U * 1024U)
+#define GALVSMPL_SESS_BUFF_CAPA_MAX  (4U * 1024U)
 
-static const struct elog_stdio_conf galvsmpl_sess_log_cfg = {
-	.super.severity = ELOG_DEBUG_SEVERITY,
-	.format         = ELOG_TAG_FMT
+static
+int
+galvsmpl_sess_xfer(struct galv_sess_conn * __restrict session)
+{
+	galvsmpl_debug("received message");
+
+	return 0;
+}
+
+static const struct galv_sess_ops galvsmpl_sess_ops = {
+	.xfer = galvsmpl_sess_xfer
 };
 
-static struct elog_stdio             galvsmpl_sess_log;
+static
+int
+galvsmpl_loop(struct galv_repo *        repository,
+              struct galv_sess_accept * acceptor,
+              struct upoll *            poller)
+{
+	struct galvsmpl_sigchan sigs;
+	int                     ret;
+	int                     err;
 
-#define galvsmpl_perr(_err, _format, ...) \
-	elog_err(&galvsmpl_sess_log, \
-	         _format ": %s (%d).\n", \
-	         ## __VA_ARGS__, \
-	         strerror(_err), \
-	         _err)
+	ret = galvsmpl_open_sigchan(&sigs, poller);
+	if (ret)
+		return ret;
 
-static const struct galv_conn_ops    galvsmpl_sess_ops = {
-};
+	do {
+		ret = upoll_process(poller, -1);
+	} while (!ret || (ret == -EINTR));
+	switch (ret) {
+	case -ESHUTDOWN:
+	case -EINTR:
+		ret = 0;
+		break;
+	}
+
+	galv_accept_suspend((struct galv_accept *)acceptor, poller);
+	galv_conn_repo_halt(repository, poller);
+	err = 0;
+	while (!galv_repo_empty(repository)) {
+		/*
+		 * To be safe, a timer should be armed here to prevent from
+		 * blocking into epoll_wait() forever...
+		 */
+		err = upoll_process(poller, -1);
+		if (err)
+			break;
+	}
+	if (err == -ESHUTDOWN)
+		err = -EINTR;
+	if (!ret)
+		ret = err;
+
+	galv_conn_repo_close(repository, poller);
+	galvsmpl_close_sigchan(&sigs, poller);
+
+	if (ret)
+		galvsmpl_pdebug(-ret, "failed to gracefully halt");
+
+	return ret;
+}
+
+static const struct galv_unix_adopt_conf
+galvsmpl_sess_unix_conf = GALV_UNIX_ADOPT_CONF(SOCK_STREAM,
+	                                       SOCK_CLOEXEC,
+	                                       GALVSMPL_SESS_PATH,
+	                                       GALVSMPL_SESS_CONN_NR);
+
+static const struct galv_sess_accept_conf
+galvsmpl_sess_conf = GALV_SESS_ACCEPT_CONF(GALVSMPL_SESS_BACKLOG,
+	                                   SOCK_CLOEXEC,
+	                                   GALVSMPL_SESS_PLOAD_MAX,
+	                                   GALVSMPL_SESS_BUFF_CAPA_MAX);
 
 int
 main(void)
 {
-	struct galv_fabric_palloc    fab;
-	struct galv_unix_gate_ucred  gate;
-	struct galv_conn_repo        repo;
-	struct galv_unix_svc_context ctx = {
-		.repo = &repo,
-		.fab  = (struct galv_fabric *)&fab,
-		.gate = (struct galv_gate *)&gate
-	};
-	struct upoll                 poll;
-	struct galv_unix_svc         svc;
-	int                          ret;
+	struct galv_unix_adopt  adopt;
+	struct upoll            poll;
+	struct galv_repo        repo = GALV_REPO_INIT(repo,
+	                                              GALVSMPL_SESS_CONN_NR);
+	struct galv_sess_accept accept;
+	int                     ret;
 
-	elog_init_stdio(&galvsmpl_sess_log, &galvsmpl_sess_log_cfg);
-	galv_setup((struct elog *)&galvsmpl_sess_log);
+	galvsmpl_init();
 
-	ret = galv_fabric_palloc_init(&fab,
-	                              GALVSMPL_SESS_CONN_NR,
-	                              sizeof(struct galv_unix_conn));
+	ret = galv_unix_adopt_open(&adopt,
+	                           GALV_GATE_DUMMY,
+	                           &galvsmpl_sess_unix_conf);
 	if (ret) {
-		galvsmpl_perr(-ret,
-		              "failed to initialize UNIX connection fabric");
-		goto out;
+		galvsmpl_perr(errno, "failed to create UNIX socket adopter");
+		goto fini;
 	}
 
-	ret = galv_unix_gate_ucred_init(&gate,
-	                                GALVSMPL_SESS_CONN_NR,
-	                                GALVSMPL_SESS_PERPID_CONN_NR,
-	                                GALVSMPL_SESS_PERUID_CONN_NR);
-	if (ret) {
-		galvsmpl_perr(-ret,
-		              "failed to initialize UNIX connection gate");
-		goto fini_fab;
-	}
-
-	/* Max number of connections + 1 for acceptor socket. */
+	/* Max number of connections + 1 for acceptor / adopter socket. */
 	ret = upoll_open(&poll, GALVSMPL_SESS_CONN_NR + 1);
 	if (ret) {
 		galvsmpl_perr(-ret, "failed to open poller");
-		goto fini_gate;
+		goto close_adopt;
 	}
 
-	galv_conn_repo_init(&repo, GALVSMPL_SESS_CONN_NR);
-
-	ret = galv_unix_svc_open(&svc,
-	                         GALVSMPL_SESS_PATH,
-	                         SOCK_STREAM,
-	                         SOCK_CLOEXEC,
-	                         GALVSMPL_SESS_BACKLOG,
-	                         &poll,
-	                         &galvsmpl_sess_ops,
-	                         &ctx);
+	ret = galv_sess_open_accept(&accept,
+	                            &galvsmpl_sess_ops,
+	                            &repo,
+	                            (struct galv_adopt *)&adopt,
+	                            &poll,
+	                            &galvsmpl_sess_conf);
 	if (ret) {
-		galvsmpl_perr(-ret, "failed to open service");
+		galvsmpl_perr(-ret, "failed to open session acceptor");
 		goto close_poll;
 	}
 
-	ret = galv_unix_svc_close(&svc, &poll);
-	if (ret)
-		galvsmpl_perr(-ret, "failed to close service");
+	ret = galvsmpl_loop(&repo, &accept, &poll);
+
+	galv_sess_close_accept(&accept, &poll);
 
 close_poll:
 	upoll_close(&poll);
-	galv_conn_repo_fini(&repo);
-fini_gate:
-	galv_unix_gate_ucred_fini(&gate);
-fini_fab:
-	galv_fabric_fini((struct galv_fabric *)&fab);
-out:
-	elog_fini_stdio(&galvsmpl_sess_log);
+close_adopt:
+	if (!ret)
+		ret = galv_unix_adopt_close(&adopt);
+	else
+		galv_unix_adopt_close(&adopt);
+fini:
+	galv_repo_fini(&repo);
+	galvsmpl_fini();
 
 	return !ret ? EXIT_SUCCESS : EXIT_FAILURE;
 }

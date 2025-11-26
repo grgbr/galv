@@ -21,4 +21,12 @@
 	galv_assert_api((_conf)->buff_capa >= GALV_SESS_BUFF_CAPA_MIN); \
 	galv_assert_api((_conf)->buff_capa <= GALV_SESS_BUFF_CAPA_MAX)
 
+#define galv_sess_assert_ops_api(_ops) \
+	galv_assert_api(_ops); \
+	galv_assert_api((_ops)->xfer)
+
+#define galv_sess_assert_ops_intern(_ops) \
+	galv_assert_intern(_ops); \
+	galv_assert_intern((_ops)->xfer)
+
 #endif /*  _GALV_LIB_SESSION_H */

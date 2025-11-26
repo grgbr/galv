@@ -18,12 +18,6 @@ builtins               := builtin_smpl.a
 builtin_smpl.a-objs    := common.o
 builtin_smpl.a-cflags  := $(common-cflags)
 
-bins                   += $(call kconf_enabled,GALV_SMPL_SESS,galv-smpl-sess)
-galv-smpl-sess-objs    := $(call kconf_enabled,GALV_SMPL_SESS,sess_srv.o)
-galv-smpl-sess-cflags  := $(common-cflags)
-galv-smpl-sess-ldflags := $(smpl-ldflags)
-galv-smpl-sess-pkgconf := libelog libutils
-
 bins                       += $(call kconf_enabled,GALV_SMPL_DISC_SRV, \
                                                    galv-smpl-disc-srv)
 galv-smpl-disc-srv-objs    := $(call kconf_enabled,GALV_SMPL_DISC_SRV, \
@@ -39,6 +33,14 @@ galv-smpl-echo-srv-objs    := $(call kconf_enabled,GALV_SMPL_ECHO_SRV, \
 galv-smpl-echo-srv-cflags  := $(common-cflags)
 galv-smpl-echo-srv-ldflags := $(smpl-ldflags)
 galv-smpl-echo-srv-pkgconf := libelog libutils
+
+bins                       += $(call kconf_enabled,GALV_SMPL_SESS_SRV, \
+                                                   galv-smpl-sess-srv)
+galv-smpl-sess-srv-objs    := $(call kconf_enabled,GALV_SMPL_SESS_SRV, \
+                                                   sess_srv.o)
+galv-smpl-sess-srv-cflags  := $(common-cflags)
+galv-smpl-sess-srv-ldflags := $(smpl-ldflags)
+galv-smpl-sess-srv-pkgconf := libelog libutils
 
 build: $(BUILDDIR)/galv-smpl-echo-clnt
 $(BUILDDIR)/galv-smpl-echo-clnt: $(SRCDIR)/echo_clnt.sh | $(BUILDDIR)/

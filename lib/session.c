@@ -10,6 +10,7 @@
 #include "fragment.h"
 #include "accept.h"
 #include <stroll/fbmap.h>
+#include <stroll/page.h>
 #include <utils/string.h>
 
 enum galv_sess_head_type {
@@ -85,6 +86,8 @@ struct galv_sess_conn {
 
 #define galv_sess_assert_accept_api(_accept) \
 	galv_assert_api(_accept); \
+	galv_accept_assert_api(&(_accept)->base); \
+	galv_sess_assert_ops_api((_accept)->ops); \
 	galv_assert_api((_accept)->frag_per_sess == \
 	                stroll_max((_accept)->buff_per_sess, \
 	                           GALV_SESS_MSG_XCHG_NR)); \
@@ -92,6 +95,9 @@ struct galv_sess_conn {
 
 #define galv_sess_assert_accept_intern(_accept) \
 	galv_assert_intern(_accept); \
+	galv_accept_assert_intern(&(_accept)->base); \
+	galv_sess_assert_ops_api((_accept)->ops); \
+	galv_sess_assert_ops_intern((_accept)->ops); \
 	galv_assert_intern((_accept)->frag_per_sess == \
 	                   stroll_max((_accept)->buff_per_sess, \
 	                              GALV_SESS_MSG_XCHG_NR)); \
@@ -198,6 +204,115 @@ galv_sess_destroy_frag(struct galv_sess_conn * __restrict   session,
 	galv_debug("session: fragment destroyed [addr:%p]", fragment);
 }
 
+static
+struct galv_buff *
+galv_sess_summon_buff(struct galv_sess_conn * __restrict   session,
+                      struct galv_sess_accept * __restrict acceptor)
+{
+	galv_sess_assert_conn_intern(session);
+	galv_sess_assert_accept_intern(acceptor);
+
+	struct galv_buff * buff;
+	int                err;
+
+	if (session->buff_cnt < acceptor->buff_per_sess) {
+		/*
+		 * FIXME:
+		 * Should we allocate smaller capacities according to current
+		 * maximum segment size or MTU ?
+		 * See description of TCP_MAXSEG in tcp(7).
+		 */
+		buff = galv_buff_summon(&acceptor->buff_alloc,
+		                        GALV_BUFF_DFLT_CAPA);
+		if (buff) {
+			session->buff_cnt++;
+			galv_debug("session: buffer allocated [addr:%p]", buff);
+			return buff;
+		}
+
+		err = errno;
+	}
+	else
+		err = ENOBUFS;
+
+	galv_ratelim_pinfo(err, "session: cannot allocate buffer", "");
+
+	errno = err;
+	return NULL;
+}
+
+static
+void
+galv_sess_release_buff(struct galv_sess_conn * __restrict session,
+                       struct galv_buff * __restrict      buffer)
+{
+	galv_sess_assert_conn_intern(session);
+	galv_assert_intern(session->buff_cnt);
+	galv_buff_assert_intern(buffer);
+
+	if (!galv_buff_release(buffer)) {
+		/*
+		 * A buffer has been freed and is now available for reception
+		 * purposes. As galv_sess_recv() (-ENOBUFS switch case) disables
+		 * EPOLLIN event upon free buffer exhaustion, make sure that we
+		 * will get notified upon available connection input data in the
+		 * future.
+		 */
+		switch (galv_conn_state(session->conn)) {
+		case GALV_CONN_CONNECTING_STATE:
+		case GALV_CONN_ESTABLISHED_STATE:
+			galv_conn_watch(session->conn, EPOLLIN);
+			break;
+		default:
+		}
+
+		session->buff_cnt--;
+
+		galv_debug("session: buffer released [addr:%p]", buffer);
+	}
+}
+
+static
+struct galv_sess_conn *
+galv_sess_alloc_conn(struct galv_sess_accept * __restrict acceptor)
+{
+	galv_sess_assert_accept_intern(acceptor);
+
+	struct galv_sess_conn * sess;
+
+	sess = stroll_falloc_alloc(&acceptor->sess_alloc);
+	if (!sess) {
+		int err = errno;
+
+		if (err != ENOMEM) {
+			galv_ratelim_pinfo(
+				err,
+				"session: cannot allocate connection",
+				"");
+			errno = err;
+		}
+
+		return NULL;
+	}
+
+	galv_debug("session: connection allocated [addr:%p]", sess);
+
+	return sess;
+}
+
+static
+void
+galv_sess_free_conn(struct galv_sess_accept * __restrict acceptor,
+                    struct galv_sess_conn * __restrict   session)
+{
+	galv_sess_assert_accept_intern(acceptor);
+	galv_sess_assert_conn_intern(session);
+
+	stroll_falloc_free(&acceptor->sess_alloc, session);
+
+	galv_debug("session: connection freed [addr:%p]", session);
+}
+
 /******************************************************************************
  * Session protocol header
  ******************************************************************************/
@@ -220,9 +335,9 @@ galv_sess_msg_multi_str(enum galv_sess_head_multi multi)
 {
 	switch (multi) {
 	case GALV_SESS_HEAD_CONT_MULTI:
-		return "true";
+		return "cont";
 	case GALV_SESS_HEAD_LAST_MULTI:
-		return "false";
+		return "last";
 	default:
 		return "?";
 	}
@@ -512,57 +627,6 @@ galv_sess_fini_msg_queue(struct galv_sess_msg_queue * __restrict queue)
  ******************************************************************************/
 
 static
-struct galv_buff *
-galv_sess_summon_buff(struct galv_sess_conn * __restrict   session,
-                      struct galv_sess_accept * __restrict acceptor)
-{
-	galv_sess_assert_conn_intern(session);
-	galv_sess_assert_accept_intern(acceptor);
-
-	struct galv_buff * buff;
-	int                err;
-
-	if (session->buff_cnt < acceptor->buff_per_sess) {
-		/*
-		 * FIXME:
-		 * Should we allocate smaller capacities according to current
-		 * maximum segment size or MTU ?
-		 * See description of TCP_MAXSEG in tcp(7).
-		 */
-		buff = galv_buff_summon(&acceptor->buff_alloc,
-		                        GALV_BUFF_DFLT_CAPA);
-		if (buff) {
-			session->buff_cnt++;
-			galv_debug("session: buffer allocated [addr:%p]", buff);
-			return buff;
-		}
-
-		err = errno;
-	}
-	else
-		err = ENOBUFS;
-
-	galv_ratelim_pinfo(err, "session: cannot allocate buffer", "");
-
-	errno = err;
-	return NULL;
-}
-
-static
-void
-galv_sess_release_buff(struct galv_sess_conn * __restrict session,
-                       struct galv_buff * __restrict      buffer)
-{
-	galv_sess_assert_conn_intern(session);
-	galv_assert_intern(session->buff_cnt);
-	galv_buff_assert_intern(buffer);
-
-	galv_buff_release(buffer);
-	session->buff_cnt--;
-	galv_debug("session: buffer released [addr:%p]", buffer);
-}
-
-static
 struct galv_sess_msg *
 galv_sess_create_msg(struct galv_sess_conn * __restrict   session,
                      struct galv_sess_accept * __restrict acceptor)
@@ -629,7 +693,7 @@ galv_sess_drain_buff(struct galv_sess_conn * __restrict  session,
 	galv_assert_intern(size <= galv_buff_busy(buff));
 
 	galv_buff_grow_head(buff, size);
-	if (galv_buff_busy(buff)) {
+	if (!galv_buff_busy(buff)) {
 		/* No more data stored into current buffer `buff'. */
 		if (!galv_buff_avail_tail(buff) || galv_buff_next(buff)) {
 			/*
@@ -740,7 +804,7 @@ galv_sess_close_conn(struct galv_sess_conn * __restrict session)
 	galv_assert_intern(!session->frag_cnt);
 	galv_sess_fini_msg_queue(&session->recv_msgq);
 
-	while (!galv_buff_queue_empty(&session->recv_buffq))
+	while (galv_buff_queue_count(&session->recv_buffq))
 		galv_sess_release_buff(session,
 		                       galv_buff_dqueue(&session->recv_buffq));
 	galv_assert_intern(!session->buff_cnt);
@@ -755,9 +819,11 @@ galv_sess_close_conn(struct galv_sess_conn * __restrict session)
 
 static
 int
-galv_sess_recv_sgmt_head(struct galv_sess_msg * __restrict   message,
+galv_sess_recv_sgmt_head(struct galv_sess_conn * __restrict  session,
+                         struct galv_sess_msg * __restrict   message,
                          struct galv_buff_queue * __restrict recvq)
 {
+	galv_sess_assert_conn_intern(session);
 	galv_sess_assert_msg_intern(message);
 	galv_assert_intern(message->multi == GALV_SESS_HEAD_CONT_MULTI);
 	galv_assert_intern(message->type < GALV_SESS_HEAD_TYPE_NR);
@@ -769,7 +835,8 @@ galv_sess_recv_sgmt_head(struct galv_sess_msg * __restrict   message,
 		enum galv_sess_head_type type;
 		uint16_t                 sz;
 
-		galv_sess_copyn_drain_buffq(recvq,
+		galv_sess_copyn_drain_buffq(session,
+		                            recvq,
 		                            (uint8_t *)&head,
 		                            sizeof(head));
 
@@ -798,10 +865,11 @@ galv_sess_recv_sgmt_head(struct galv_sess_msg * __restrict   message,
 
 static
 int
-galv_sess_recv_sgmt_frag(struct galv_sess_msg * __restrict   message,
-                         struct galv_buff_queue * __restrict recvq,
-                         struct stroll_falloc * __restrict   alloc)
+galv_sess_recv_sgmt_frag(struct galv_sess_conn * __restrict  session,
+                         struct galv_sess_msg * __restrict   message,
+                         struct galv_buff_queue * __restrict recvq)
 {
+	galv_sess_assert_conn_intern(session);
 	galv_sess_assert_msg_intern(message);
 	galv_assert_intern(galv_sess_msg_loading(message));
 	galv_assert_intern(message->multi != GALV_SESS_HEAD_MULTI_NR);
@@ -810,7 +878,6 @@ galv_sess_recv_sgmt_frag(struct galv_sess_msg * __restrict   message,
 	galv_assert_intern(!galv_sess_sgmt_full(&message->sgmt));
 	galv_assert_intern(recvq);
 	galv_assert_intern(!galv_buff_queue_empty(recvq));
-	galv_assert_intern(alloc);
 
 	struct galv_frag_list * frags = &message->frags;
 	struct galv_frag *      frag = (!galv_frag_list_empty(frags))
@@ -821,7 +888,10 @@ galv_sess_recv_sgmt_frag(struct galv_sess_msg * __restrict   message,
 	size_t                  bytes;
 
 	if (!frag || galv_frag_full(frag)) {
-		frag = galv_frag_create(alloc, sgmt->size - sgmt->busy, buff);
+		frag = galv_sess_create_frag(session,
+		                             galv_sess_conn_acceptor(session),
+		                             sgmt->size - sgmt->busy,
+		                             buff);
 		if (!frag) {
 			int err = errno;
 
@@ -847,23 +917,22 @@ galv_sess_recv_sgmt_frag(struct galv_sess_msg * __restrict   message,
 
 static
 int
-galv_sess_recv_sgmt(struct galv_sess_msg * __restrict   message,
-                    struct galv_buff_queue * __restrict recvq,
-                    struct stroll_falloc * __restrict   alloc)
+galv_sess_recv_sgmt(struct galv_sess_conn * __restrict  session,
+                    struct galv_sess_msg * __restrict   message)
 {
+	galv_sess_assert_conn_intern(session);
+	galv_assert_intern(!galv_buff_queue_empty(&session->recv_buffq));
 	galv_sess_assert_msg_intern(message);
 	galv_assert_intern(galv_sess_msg_loading(message));
 	galv_assert_intern(message->multi != GALV_SESS_HEAD_MULTI_NR);
 	galv_assert_intern(message->type != GALV_SESS_HEAD_TYPE_NR);
-	galv_assert_intern(recvq);
-	galv_assert_intern(!galv_buff_queue_empty(recvq));
-	galv_assert_intern(alloc);
 
-	struct galv_sess_sgmt * sgmt = &message->sgmt;
-	int                     ret;
+	struct galv_sess_sgmt *  sgmt = &message->sgmt;
+	struct galv_buff_queue * recvq = &session->recv_buffq;
+	int                      ret;
 
 	if (!galv_sess_sgmt_loading(sgmt)) {
-		ret = galv_sess_recv_sgmt_head(message, recvq);
+		ret = galv_sess_recv_sgmt_head(session, message, recvq);
 		if (ret) {
 			if (ret != -EAGAIN)
 				galv_ratelim_pinfo(
@@ -884,7 +953,7 @@ galv_sess_recv_sgmt(struct galv_sess_msg * __restrict   message,
 
 	galv_assert_intern(!galv_sess_sgmt_full(sgmt));
 	do {
-		ret = galv_sess_recv_sgmt_frag(message, recvq, alloc);
+		ret = galv_sess_recv_sgmt_frag(session, message, recvq);
 	} while (!ret &&
 	         !galv_sess_sgmt_full(sgmt) &&
 	         !galv_buff_queue_empty(recvq));
@@ -899,14 +968,15 @@ galv_sess_recv_sgmt(struct galv_sess_msg * __restrict   message,
 	}
 	
 	if (galv_sess_sgmt_full(sgmt)) {
-		message->size += galv_sess_sgmt_size(sgmt);
-		galv_sess_stop_sgmt(sgmt);
 		galv_debug("session: receive segment complete "
 		           "[id:%u type:%s multi:%s size:%zu]",
 		           message->xchg,
 		           galv_sess_msg_type_str(message->type),
 		           galv_sess_msg_multi_str(message->multi),
-		           message->sgmt.size);
+		           galv_sess_sgmt_size(sgmt));
+
+		message->size += galv_sess_sgmt_size(sgmt);
+		galv_sess_stop_sgmt(sgmt);
 	}
 
 	return 0;
@@ -914,9 +984,11 @@ galv_sess_recv_sgmt(struct galv_sess_msg * __restrict   message,
 
 static
 int
-galv_sess_recv_msg_head(struct galv_sess_msg * __restrict   message,
+galv_sess_recv_msg_head(struct galv_sess_conn * __restrict  session,
+                        struct galv_sess_msg * __restrict   message,
                         struct galv_buff_queue * __restrict recvq)
 {
+	galv_sess_assert_conn_intern(session);
 	galv_sess_assert_msg_intern(message);
 	galv_assert_intern(!galv_sess_msg_loading(message));
 	galv_assert_intern(!message->size);
@@ -931,7 +1003,8 @@ galv_sess_recv_msg_head(struct galv_sess_msg * __restrict   message,
 		enum galv_sess_head_type type;
 		uint16_t                 sz;
 
-		galv_sess_copyn_drain_buffq(recvq,
+		galv_sess_copyn_drain_buffq(session,
+		                            recvq,
 		                            (uint8_t *)&head,
 		                            sizeof(head));
 
@@ -963,16 +1036,18 @@ galv_sess_recv_msg_head(struct galv_sess_msg * __restrict   message,
 
 static
 int
-galv_sess_recv_tail_buff(struct galv_sess_conn * __restrict session)
+galv_sess_recv_tail_buff(struct galv_sess_conn * __restrict   session,
+                         struct galv_sess_accept * __restrict acceptor)
 {
 	galv_sess_assert_conn_intern(session);
+	galv_sess_assert_accept_intern(acceptor);
 
 	struct galv_buff * buff;
 	size_t             size;
 	ssize_t            ret = 0;
 
 	buff = galv_buff_queue_last(&session->recv_buffq);
-	galv_assert_intern(buff->alloc == &session->buff_alloc);
+	galv_assert_intern(buff->alloc == &acceptor->buff_alloc);
 	size = galv_buff_avail_tail(buff);
 	if (size) {
 		ret = galv_conn_recv(session->conn,
@@ -992,15 +1067,17 @@ galv_sess_recv_tail_buff(struct galv_sess_conn * __restrict session)
 
 static
 int
-galv_sess_recv_new_buff(struct galv_sess_conn * __restrict session)
+galv_sess_recv_new_buff(struct galv_sess_conn * __restrict   session,
+                        struct galv_sess_accept * __restrict acceptor)
 {
 	galv_sess_assert_conn_intern(session);
+	galv_sess_assert_accept_intern(acceptor);
 
 	struct galv_buff * buff;
 	size_t             size;
 	ssize_t            ret;
 
-	buff = galv_sess_summon_buff(&session->buff_alloc);
+	buff = galv_sess_summon_buff(session, acceptor);
 	if (!buff)
 		return -errno;
 
@@ -1025,16 +1102,17 @@ galv_sess_recv_buffs(struct galv_sess_conn * __restrict session)
 {
 	galv_sess_assert_conn_intern(session);
 
-	int ret;
+	int                       ret;
+	struct galv_sess_accept * accept = galv_sess_conn_acceptor(session);
 
 	if (!galv_buff_queue_empty(&session->recv_buffq)) {
-		ret = galv_sess_recv_tail_buff(session);
+		ret = galv_sess_recv_tail_buff(session, accept);
 		if (ret)
 			return ret;
 	}
 
 	do {
-		ret = galv_sess_recv_new_buff(session);
+		ret = galv_sess_recv_new_buff(session, accept);
 	} while (!ret);
 
 	galv_assert_intern(ret < 0);
@@ -1056,7 +1134,9 @@ galv_sess_recv_msg(struct galv_sess_conn * __restrict session,
 	int ret;
 
 	if (!galv_sess_msg_loading(message)) {
-		ret = galv_sess_recv_msg_head(message, &session->recv_buffq);
+		ret = galv_sess_recv_msg_head(session,
+		                              message,
+		                              &session->recv_buffq);
 		if (ret) {
 			if (ret != -EAGAIN)
 				galv_ratelim_pinfo(
@@ -1084,9 +1164,7 @@ galv_sess_recv_msg(struct galv_sess_conn * __restrict session,
 
 	galv_assert_intern(!galv_sess_msg_full(message));
 	do {
-		ret = galv_sess_recv_sgmt(message,
-		                          &session->recv_buffq,
-		                          &session->frag_alloc);
+		ret = galv_sess_recv_sgmt(session, message);
 	} while (!ret && !galv_sess_msg_full(message));
 
 	if (ret) {
@@ -1129,12 +1207,16 @@ galv_sess_recv_tail_msg(struct galv_sess_conn * __restrict session)
 
 static
 int
-galv_sess_recv_new_msg(struct galv_sess_conn * __restrict session)
+galv_sess_recv_new_msg(struct galv_sess_conn * __restrict   session,
+                       struct galv_sess_accept * __restrict acceptor)
 {
+	galv_sess_assert_conn_intern(session);
+	galv_sess_assert_accept_intern(acceptor);
+
 	struct galv_sess_msg * msg;
 	int                    ret;
 
-	msg = galv_sess_create_msg(session);
+	msg = galv_sess_create_msg(session, acceptor);
 	if (!msg)
 		return -errno;
 
@@ -1150,7 +1232,7 @@ galv_sess_recv_new_msg(struct galv_sess_conn * __restrict session)
 		break;
 	}
 
-	galv_sess_destroy_msg(session, msg);
+	galv_sess_destroy_msg(session, acceptor, msg);
 
 	return ret;
 }
@@ -1161,7 +1243,8 @@ galv_sess_recv_msgs(struct galv_sess_conn * __restrict session)
 {
 	galv_sess_assert_conn_intern(session);
 
-	int ret;
+	int                       ret;
+	struct galv_sess_accept * accept = galv_sess_conn_acceptor(session);
 
 	if (!galv_sess_msg_queue_empty(&session->recv_msgq)) {
 		ret = galv_sess_recv_tail_msg(session);
@@ -1170,7 +1253,7 @@ galv_sess_recv_msgs(struct galv_sess_conn * __restrict session)
 	}
 
 	do {
-		ret = galv_sess_recv_new_msg(session);
+		ret = galv_sess_recv_new_msg(session, accept);
 	} while (!ret);
 
 	galv_assert_intern(ret < 0);
@@ -1180,9 +1263,7 @@ galv_sess_recv_msgs(struct galv_sess_conn * __restrict session)
 
 static
 int
-galv_sess_recv(struct galv_sess_conn * __restrict session,
-               uint32_t                           events,
-               const struct upoll * __restrict    poller)
+galv_sess_recv(struct galv_sess_conn * __restrict session)
 {
 	int ret;
 
@@ -1196,22 +1277,19 @@ galv_sess_recv(struct galv_sess_conn * __restrict session,
 
 	case -ENOBUFS:
 		/*
-		 * No more receive buffer available.
-		 *
-		 * FIXME: ??
-		 * We might call galv_conn_unwatch(session->conn, EPOLLIN) here
-		 * and make sure to call galv_conn_watch(session->conn, EPOLLIN)
-		 * when receive buffers are available again at
-		 * galv_buff_fabric_free() calling time.
-		 * In addition we might give the client a chance to release
-		 * messages / fragments / buffers thanks to a callback function.
+		 * No more receive buffer available. Disable connection input
+		 * data available event (i.e., EPOLLIN) to prevent from being
+		 * called from polling context while there is no more free
+		 * buffer to receive data into.
+		 * At galv_sess_release_buff() calling time, i.e., once a buffer
+		 * has been freed, EPOLLIN event notification is enabled again.
 		 */
+		galv_conn_unwatch(session->conn, EPOLLIN);
+		ret = 0;
 		break;
 
 	case -ECONNREFUSED:
 		/* Remote peer closed its connection */
-		return galv_conn_on_recv_shut(session->conn, events, poller);
-
 	case -EINTR:
 		/* Interrupted by a signal before any data was received */
 	case -ENOMEM:
@@ -1231,35 +1309,20 @@ galv_sess_recv(struct galv_sess_conn * __restrict session,
 	switch (ret) {
 	case -EAGAIN:
 		/* No more data to fill in additional messages. */
-		galv_conn_watch(session->conn, EPOLLIN);
-		ret = 0;
-		break;
-
 	case -ENOBUFS:
 		/*
 		 * No more free fragments / messages available to process
 		 * messages.
-		 *
-		 * FIXME: ??
-		 * We might call galv_conn_unwatch(session->conn, EPOLLIN) here
-		 * and make sure to call galv_conn_watch(session->conn, EPOLLIN)
-		 * when fragments / messages are available again at
-		 * galv_frag_destroy() / galv_sess_destroy_msg() calling time.
-		 * In addition we might give the client a chance to release
-		 * messages / fragments thanks to a callback function.
 		 */
+		ret = 0;
 		break;
 
 	case -EPROTO:
 		/* Unexpected segment / message header received. */
 	case -ENODATA:
-		/*
-		 * Invalid empty segment / message header received.
-		 * Close receive end and hopefully flush output messages.
-		 */
-		return galv_conn_on_recv_shut(session->conn, events, poller);
-
+		/* Invalid empty segment / message header received. */
 	case -ENOMEM:
+		/* No more memory available */
 		break;
 
 	default:
@@ -1269,23 +1332,13 @@ galv_sess_recv(struct galv_sess_conn * __restrict session,
 	return ret;
 }
 
-/******************************************************************************/
-/******************************************************************************/
-/******************************************************************************/
-/******************************************************************************/
-/******************************************************************************/
-/******************************************************************************/
-/******************************************************************************/
-/******************************************************************************/
-/******************************************************************************/
-
 static
 int
 galv_sess_process_closing_conn(struct galv_sess_conn * session,
                                const struct upoll *    poller)
 {
-#warning IMPLEMENT ME!!
-	return -ENOSYS;
+#warning Implement output buffer flushing.
+	return galv_conn_close(session->conn, poller);
 }
 
 static
@@ -1294,17 +1347,43 @@ galv_sess_process_established_conn(struct galv_sess_conn * session,
                                    uint32_t                events,
                                    const struct upoll *    poller)
 {
-#warning IMPLEMENT ME!!
-	return -ENOSYS;
+	int ret;
 
-#if 0
-	struct galv_sess_conn * sess = galv_sess_from_conn(connection);
+	if (events & EPOLLOUT)
+		galv_conn_unwatch(session->conn, EPOLLOUT);
 
-	galv_sess_recv(sess, events, poller);
+	if (events & EPOLLIN) {
+		ret = galv_sess_recv(session);
+		switch (ret) {
+		case 0:
+			break;
 
-	galv_debug("session: %s: implement me", __func__);
-	return -ENOSYS;
-#endif
+		case -ECONNREFUSED:
+		case -EPROTO:
+		case -ENODATA:
+			return galv_conn_on_recv_shut(session->conn,
+			                              events,
+			                              poller);
+
+		case -EINTR:
+		case -ENOMEM:
+			goto apply;
+
+		default:
+			galv_ratelim_pnotice(-ret,
+			                     "session: unexpected transfer failure",
+			                     "");
+		}
+	}
+
+	ret = galv_sess_conn_acceptor(session)->ops->xfer(session);
+
+#warning Implement output buffer flushing
+
+apply:
+	galv_conn_apply_watch(session->conn, poller);
+
+	return ret;
 }
 
 static
@@ -1335,26 +1414,16 @@ galv_sess_on_connect(struct galv_conn *   connection,
                      uint32_t             events __unused,
                      const struct upoll * poller)
 {
-	struct galv_sess_conn *   sess;
 	struct galv_sess_accept * accept;
+	struct galv_sess_conn *   sess;
 	int                       err;
 
 	accept = galv_sess_from_accept(galv_conn_acceptor(connection));
+	sess = galv_sess_alloc_conn(accept);
+	if (!sess)
+		return -errno;
 
-	sess = stroll_alloc(accept->alloc);
-	if (!sess) {
-		err = errno;
-		if (err != ENOMEM)
-			galv_ratelim_pinfo(
-				err,
-				"session: cannot allocate connection",
-				"");
-		return -err;
-	}
-
-	err = galv_sess_open_conn(sess, connection, max_pload_size, buff_capa);
-	if (err)
-		goto free;
+	galv_sess_open_conn(sess, connection);
 
 	err = galv_conn_poll(connection, poller, EPOLLIN, sess);
 	if (err) {
@@ -1366,14 +1435,13 @@ galv_sess_on_connect(struct galv_conn *   connection,
 
 	galv_conn_switch_state(connection, GALV_CONN_ESTABLISHED_STATE);
 
-	galv_debug("session: connection established");
+	galv_debug("session: connection established [addr:%p]", sess);
 
 	return 0;
 
 close:
 	galv_sess_close_conn(sess);
-free:
-	stroll_free(accept->alloc, sess);
+	galv_sess_free_conn(accept, sess);
 
 	return err;
 }
@@ -1425,7 +1493,7 @@ galv_sess_close(struct galv_conn * __restrict   connection,
 
 	galv_conn_unpoll(connection, poller);
 	galv_sess_close_conn(sess);
-	stroll_free(accept->alloc, sess);
+	galv_sess_free_conn(accept, sess);
 }
 
 static
@@ -1448,55 +1516,6 @@ static const struct galv_conn_ops galv_sess_conn_ops = {
 	.close        = galv_sess_close,
 	.on_error     = galv_sess_on_error
 };
-
-int
-galv_sess_open_accept(struct galv_sess_accept * __restrict acceptor,
-                      struct galv_repo * __restrict        repository,
-                      struct stroll_falloc * __restrict    allocator,
-                      struct galv_adopt * __restrict       adopter,
-                      unsigned int                         backlog,
-                      int                                  flags,
-                      const struct upoll * __restrict      poller)
-{
-	galv_assert_api(acceptor);
-	galv_repo_assert_api(repository);
-	galv_assert_api(allocator);
-	galv_adopt_assert_api(adopter);
-	galv_assert_api(backlog <= INT_MAX);
-	galv_assert_api(!(flags & ETUX_SOCK_ACCEPT_INVALID_FLAGS));
-	galv_assert_api(poller);
-
-	int ret;
-
-	ret = galv_accept_open(&acceptor->base,
-	                       repository,
-	                       adopter,
-	                       backlog,
-	                       &galv_sess_conn_ops,
-	                       flags,
-	                       poller);
-	if (ret)
-		return ret;
-
-	acceptor->alloc = allocator;
-
-	return 0;
-}
-
-void
-galv_sess_close_accept(const struct galv_sess_accept * __restrict acceptor,
-                       const struct upoll * __restrict            poller)
-{
-	galv_accept_assert_api(&acceptor->base);
-	galv_assert_api(acceptor->alloc);
-	galv_assert_api(poller);
-}
-
-/******************************************************************************/
-/******************************************************************************/
-/******************************************************************************/
-/******************************************************************************/
-/******************************************************************************/
 
 /*
  * Compute the expected number of buffers required to store an entire session
@@ -1581,12 +1600,14 @@ galv_sess_config_accept(
 int
 galv_sess_open_accept(
 	struct galv_sess_accept * __restrict            acceptor,
+	const struct galv_sess_ops * __restrict         operations,
 	struct galv_repo * __restrict                   repository,
 	struct galv_adopt * __restrict                  adopter,
 	const struct upoll * __restrict                 poller,
 	const struct galv_sess_accept_conf * __restrict config)
 {
 	galv_assert_api(acceptor);
+	galv_sess_assert_ops_api(operations);
 	galv_repo_assert_api(repository);
 	galv_adopt_assert_api(adopter);
 	galv_sess_assert_conf_api(config);
@@ -1608,6 +1629,7 @@ galv_sess_open_accept(
 	if (ret)
 		return ret;
 
+	acceptor->ops = operations;
 	acceptor->buff_per_sess = galv_sess_calc_buff_nr(config->max_pload,
 	                                                 config->buff_capa);
 	acceptor->frag_per_sess = stroll_max(acceptor->buff_per_sess,
@@ -1615,7 +1637,7 @@ galv_sess_open_accept(
 
 	conn_nr = galv_accept_conn_nr(&acceptor->base);
 	galv_assert_intern(conn_nr);
-	if (conn_nr != GALV_ACCEPT_UNBOUND_CONN_NR) {
+	if (conn_nr != STROLL_FALLOC_UNBOUND_CHUNK_NR) {
 		max_msg = stroll_max((uint64_t)GALV_SESS_MSG_XCHG_NR *
 		                     (uint64_t)conn_nr,
 		                     (uint64_t)UINT_MAX);
@@ -1627,9 +1649,9 @@ galv_sess_open_accept(
 		                      (uint64_t)UINT_MAX);
 	}
 	else {
-		max_msg = (uint64_t)GALV_ACCEPT_UNBOUND_CONN_NR;
-		max_frag = (uint64_t)GALV_ACCEPT_UNBOUND_CONN_NR;
-		max_buff = (uint64_t)GALV_ACCEPT_UNBOUND_CONN_NR;
+		max_msg = (uint64_t)STROLL_FALLOC_UNBOUND_CHUNK_NR;
+		max_frag = (uint64_t)STROLL_FALLOC_UNBOUND_CHUNK_NR;
+		max_buff = (uint64_t)STROLL_FALLOC_UNBOUND_CHUNK_NR;
 	}
 
 	stroll_falloc_init_block_size(&acceptor->msg_alloc,
@@ -1646,15 +1668,15 @@ galv_sess_open_accept(
 	                             acceptor->buff_per_sess);
 	stroll_falloc_init_block_size(&acceptor->sess_alloc,
 	                              (unsigned int)conn_nr,
-	                              session_size,
+	                              sizeof(struct galv_sess_conn),
 	                              stroll_page_size());
 
 	return 0;
 }
 
 void
-galv_sess_close_accept(const struct galv_sess_accept * __restrict acceptor,
-                       const struct upoll * __restrict            poller)
+galv_sess_close_accept(struct galv_sess_accept * __restrict acceptor,
+                       const struct upoll * __restrict      poller)
 {
 	galv_sess_assert_accept_api(acceptor);
 	galv_assert_api(poller);

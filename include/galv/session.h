@@ -22,8 +22,6 @@
 #include <galv/buffer.h>
 #include <galv/priv/session.h>
 
-#if 0
-
 /******************************************************************************
  * Session message
  ******************************************************************************/
@@ -50,6 +48,12 @@ galv_sess_msg_push_tail(struct galv_sess_msg * __restrict message,
 
 struct galv_sess_conn;
 
+typedef int galv_sess_xfer_fn(struct galv_sess_conn * __restrict);
+
+struct galv_sess_ops {
+	galv_sess_xfer_fn * xfer;
+};
+
 /*
  * Receive use case.
  * Return -ENODATA if no more data available
@@ -75,8 +79,6 @@ galv_sess_drop_msg(struct galv_sess_conn * __restrict session,
                    struct galv_sess_msg * __restrict  message)
 	__export_public;
 
-#endif
-
 /******************************************************************************
  * Session acceptor
  ******************************************************************************/
@@ -99,9 +101,10 @@ struct galv_sess_accept_conf {
 
 #define GALV_SESS_ACCEPT_CONF(_backlog, _conn_flags, _max_pload, _buff_capa) \
 	{ \
-		.backlog    = compile_eval(_backlog <= (unsigned int)INT_MAX), \
-		                           _backlog, \
-		                           "invalid session backlog value"), \
+		.backlog    = compile_eval( \
+			(_backlog) <= (unsigned int)INT_MAX, \
+			_backlog, \
+			"invalid session backlog value"), \
 		.conn_flags = compile_eval( \
 			!((_conn_flags) & ETUX_SOCK_ACCEPT_INVALID_FLAGS), \
 			_conn_flags, \
@@ -109,18 +112,13 @@ struct galv_sess_accept_conf {
 		.max_pload  = compile_eval( \
 			(_max_pload) && \
 			((_max_pload) <= GALV_SESS_PLOAD_SIZE_MAX), \
-			stroll_align_upper( \
-				_max_pload, \
-				__WORDSIZE), \
-				"invalid maximum session payload size"), \
-		.buff_capa  = stroll_align_upper(_buff_capa, __WORDSIZE) \
+			stroll_align_upper(_max_pload, __WORDSIZE), \
+			"invalid maximum session payload size"), \
 		.buff_capa  = compile_eval( \
 			((_buff_capa) >= GALV_SESS_BUFF_CAPA_MIN) && \
 			((_buff_capa) <= GALV_SESS_BUFF_CAPA_MAX), \
-			stroll_align_upper( \
-				_buff_capa, \
-				__WORDSIZE), \
-				"invalid session buffer capacity") \
+			stroll_align_upper(_buff_capa, __WORDSIZE), \
+			"invalid session buffer capacity") \
 	}
 
 extern int
@@ -143,6 +141,7 @@ struct galv_sess_accept;
 extern int
 galv_sess_open_accept(
 	struct galv_sess_accept * __restrict            acceptor,
+	const struct galv_sess_ops * __restrict         operations,
 	struct galv_repo * __restrict                   repository,
 	struct galv_adopt * __restrict                  adopter,
 	const struct upoll * __restrict                 poller,
@@ -150,8 +149,8 @@ galv_sess_open_accept(
 	__export_public;
 
 extern void
-galv_sess_close_accept(const struct galv_sess_accept * __restrict acceptor,
-                       const struct upoll * __restrict            poller)
+galv_sess_close_accept(struct galv_sess_accept * __restrict acceptor,
+                       const struct upoll * __restrict      poller)
 	__export_public;
 
 #endif /* _GALV_SESSION_H */
