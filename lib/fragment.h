@@ -91,12 +91,12 @@ galv_frag_init(struct galv_frag * __restrict fragment,
                struct galv_buff * __restrict buffer);
 
 static inline
-void
+unsigned long
 galv_frag_fini(const struct galv_frag * __restrict fragment)
 {
 	galv_frag_assert_api(fragment);
 
-	galv_buff_release(fragment->buff);
+	return galv_buff_release(fragment->buff);
 }
 
 /**

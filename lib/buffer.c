@@ -149,8 +149,10 @@ galv_buff_release(struct galv_buff * __restrict buffer)
 	galv_buff_assert_api(buffer);
 	galv_assert_api(!buffer->queue);
 
-	if (!(--buffer->ref))
+	unsigned long ref = --buffer->ref;
+
+	if (!ref)
 		stroll_falloc_free(buffer->alloc, buffer);
 
-	return buffer->ref;
+	return ref;
 }
