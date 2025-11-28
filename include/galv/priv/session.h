@@ -15,6 +15,7 @@ struct galv_sess_accept {
 	struct galv_accept           base;
 	const struct galv_sess_ops * ops;
 	struct stroll_falloc         msg_alloc;
+	size_t                       max_pload;
 	unsigned int                 frag_per_sess;
 	struct stroll_falloc         frag_alloc;
 	unsigned int                 buff_per_sess;

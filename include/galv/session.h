@@ -90,6 +90,14 @@ struct galv_sess_accept_conf {
 	size_t       buff_capa;
 };
 
+/*
+ * Restrict maximum payload size to prevent from integer addition overflow
+ * during session message size computation. See galv_sess_recv_sgmt_head().
+ */
+#if CONFIG_GALV_SESS_PLOAD_SIZE_MAX > (SIZE_MAX - USHRT_MAX)
+#error Invalid Maximum session message payload size !
+#endif
+
 #define GALV_SESS_PLOAD_SIZE_MAX \
 	STROLL_CONCAT(CONFIG_GALV_SESS_PLOAD_SIZE_MAX, U)
 
