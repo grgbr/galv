@@ -12,14 +12,19 @@
  * Network buffer queue handling
  ******************************************************************************/
 
+#define galv_buff_assert_queue_intern(_queue) \
+	galv_assert_intern(_queue); \
+	galv_assert_intern((_queue)->cnt ^ \
+	                   stroll_slist_empty(&(_queue)->base)); \
+	galv_assert_intern(!((_queue)->busy && !(_queue)->cnt))
+
 static
 void
 galv_buff_grow_queue(struct galv_buff_queue * __restrict queue, size_t bytes)
 {
-	galv_buff_assert_queue_api(queue);
-	galv_assert_api(!stroll_slist_empty(&queue->base));
-	galv_assert_api(queue->cnt);
-	galv_assert_api(queue->busy);
+	galv_buff_assert_queue_intern(queue);
+	galv_assert_intern(!stroll_slist_empty(&queue->base));
+	galv_assert_intern(queue->cnt);
 
 	queue->busy += bytes;
 }
@@ -28,11 +33,10 @@ static
 void
 galv_buff_shrink_queue(struct galv_buff_queue * __restrict queue, size_t bytes)
 {
-	galv_buff_assert_queue_api(queue);
-	galv_assert_api(!stroll_slist_empty(&queue->base));
-	galv_assert_api(queue->cnt);
-	galv_assert_api(queue->busy);
-	galv_assert_api(bytes <= queue->busy);
+	galv_buff_assert_queue_intern(queue);
+	galv_assert_intern(!stroll_slist_empty(&queue->base));
+	galv_assert_intern(queue->cnt);
+	galv_assert_intern(bytes <= queue->busy);
 
 	queue->busy -= bytes;
 }
@@ -87,10 +91,10 @@ galv_buff_grow_tail(struct galv_buff * __restrict buffer, size_t bytes)
 	galv_buff_assert_api(buffer);
 	galv_assert_api(bytes <= galv_buff_avail_tail(buffer));
 
-	stroll_buff_grow_tail(&buffer->base, bytes);
-
 	if (buffer->queue)
 		galv_buff_grow_queue(buffer->queue, bytes);
+
+	stroll_buff_grow_tail(&buffer->base, bytes);
 }
 
 void
@@ -99,10 +103,10 @@ galv_buff_grow_head(struct galv_buff * __restrict buffer, size_t bytes)
 	galv_buff_assert_api(buffer);
 	galv_assert_api(bytes <= galv_buff_busy(buffer));
 
-	stroll_buff_grow_head(&buffer->base, bytes);
-
 	if (buffer->queue)
 		galv_buff_shrink_queue(buffer->queue, bytes);
+
+	stroll_buff_grow_head(&buffer->base, bytes);
 }
 
 void
@@ -147,12 +151,13 @@ unsigned long
 galv_buff_release(struct galv_buff * __restrict buffer)
 {
 	galv_buff_assert_api(buffer);
-	galv_assert_api(!buffer->queue);
 
 	unsigned long ref = --buffer->ref;
 
-	if (!ref)
+	if (!ref) {
+		galv_assert_api(!buffer->queue);
 		stroll_falloc_free(buffer->alloc, buffer);
+	}
 
 	return ref;
 }

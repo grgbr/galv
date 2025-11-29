@@ -168,12 +168,7 @@ struct galv_buff_queue {
 #define galv_buff_assert_queue_api(_queue) \
 	galv_assert_api(_queue); \
 	galv_assert_api((_queue)->cnt ^ stroll_slist_empty(&(_queue)->base)); \
-	galv_assert_api( \
-		(_queue)->busy ^ \
-		(stroll_slist_empty(&(_queue)->base) || \
-		 !stroll_buff_busy(&stroll_slist_first_entry(&(_queue)->base, \
-		                                             struct galv_buff, \
-		                                             node)->base)))
+	galv_assert_api(!((_queue)->busy && !(_queue)->cnt))
 
 static inline
 size_t

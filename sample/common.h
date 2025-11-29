@@ -17,6 +17,9 @@ extern struct elog_stdio galvsmpl_log;
 	         strerror(_err), \
 	         _err)
 
+#define galvsmpl_info(_format, ...) \
+	elog_info(&galvsmpl_log, _format ".", ## __VA_ARGS__)
+
 #define galvsmpl_debug(_format, ...) \
 	elog_debug(&galvsmpl_log, _format ".", ## __VA_ARGS__)
 

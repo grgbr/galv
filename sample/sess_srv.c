@@ -21,7 +21,17 @@ static
 int
 galvsmpl_sess_xfer(struct galv_sess_conn * __restrict session)
 {
-	galvsmpl_debug("received message");
+	while (galv_sess_may_pull_msg(session)) {
+		struct galv_sess_msg * msg;
+
+		msg = galv_sess_pull_msg(session);
+		galvsmpl_info("received session message "
+		              "[type:%d xchg:%u size:%zu]",
+		              galv_sess_msg_type(msg),
+		              galv_sess_msg_xchg(msg),
+		              galv_sess_msg_size(msg));
+		galv_sess_drop_msg(session, msg);
+	}
 
 	return 0;
 }

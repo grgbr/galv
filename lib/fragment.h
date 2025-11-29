@@ -9,6 +9,7 @@
 #define _GALV_LIB_FRAGMENT_H
 
 #include "buffer.h"
+#include <galv/priv/fragment.h>
 
 /**
  * @internal
@@ -98,15 +99,6 @@ galv_frag_fini(const struct galv_frag * __restrict fragment)
 
 	return galv_buff_release(fragment->buff);
 }
-
-/**
- * @internal
- *
- * Core network fragment list.
- */
-struct galv_frag_list {
-	struct stroll_slist base;
-};
 
 #define galv_frag_list_foreach(_list, _frag) \
 	stroll_slist_foreach_entry(_list, _frag, list)

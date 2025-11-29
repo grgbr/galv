@@ -20,13 +20,46 @@
 #define _GALV_SESSION_H
 
 #include <galv/buffer.h>
+
+enum galv_sess_head_type {
+	GALV_SESS_HEAD_REQUEST_TYPE = 0,
+	GALV_SESS_HEAD_REPLY_TYPE   = 1,
+	GALV_SESS_HEAD_NOTIF_TYPE   = 2,
+	GALV_SESS_HEAD_TYPE_NR
+};
+
 #include <galv/priv/session.h>
 
 /******************************************************************************
  * Session message
  ******************************************************************************/
 
-struct galv_sess_msg;
+static inline
+size_t
+galv_sess_msg_size(const struct galv_sess_msg * __restrict message)
+{
+	galv_sess_assert_msg_api(message);
+
+	return message->size;
+}
+
+static inline
+enum galv_sess_head_type
+galv_sess_msg_type(const struct galv_sess_msg * __restrict message)
+{
+	galv_sess_assert_msg_api(message);
+
+	return message->type;
+}
+
+static inline
+unsigned int
+galv_sess_msg_xchg(const struct galv_sess_msg * __restrict message)
+{
+	galv_sess_assert_msg_api(message);
+
+	return message->xchg;
+}
 
 /* Retrieve a pointer to user data from a message. */
 extern ssize_t
@@ -54,10 +87,10 @@ struct galv_sess_ops {
 	galv_sess_xfer_fn * xfer;
 };
 
-/*
- * Receive use case.
- * Return -ENODATA if no more data available
- */
+extern bool
+galv_sess_may_pull_msg(const struct galv_sess_conn * __restrict session)
+	__export_public;
+
 extern struct galv_sess_msg *
 galv_sess_pull_msg(struct galv_sess_conn * __restrict session)
 	__export_public;

@@ -38,16 +38,6 @@ struct galv_accept;
 	galv_assert_intern((_conn)->accept)
 
 static inline
-struct galv_accept *
-galv_conn_acceptor(const struct galv_conn * __restrict connection)
-{
-	galv_conn_assert_api(connection);
-	galv_assert_api(connection->state != GALV_CONN_CLOSED_STATE);
-
-	return connection->accept;
-}
-
-static inline
 int
 galv_conn_on_may_xfer(struct galv_conn * __restrict   connection,
                       uint32_t                        events,
