@@ -34,7 +34,7 @@ galv_frag_init(struct galv_frag * __restrict fragment,
 	galv_assert_api(capacity);
 	galv_assert_api(buffer);
 	galv_assert_api(galv_buff_capacity(buffer));
-	galv_assert_api(capacity <= galv_buff_capacity(buffer));
+	galv_assert_api(capacity <= STROLL_BUFF_CAPACITY_MAX);
 
 	size_t off = galv_buff_avail_head(buffer);
 	size_t capa = stroll_min(off + capacity, galv_buff_capacity(buffer));

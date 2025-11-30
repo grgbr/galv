@@ -125,14 +125,22 @@ galv_sess_summon_buff(struct galv_sess_conn * __restrict   session,
 			return buff;
 		}
 
-		err = errno;
+		switch (errno) {
+		case ENOBUFS:
+		case ENOMEM:
+			return NULL;
+
+		default:
+			err = errno;
+			galv_ratelim_pinfo(err,
+			                   "session: cannot allocate buffer",
+			                   "");
+			errno = err;
+		}
 	}
 	else
-		err = ENOBUFS;
+		errno = ENOBUFS;
 
-	galv_ratelim_pinfo(err, "session: cannot allocate buffer", "");
-
-	errno = err;
 	return NULL;
 }
 
@@ -199,7 +207,9 @@ galv_sess_create_frag(struct galv_sess_conn * __restrict   session,
 			galv_debug("session: fragment created "
 			           "[addr:%p capa:%zu]",
 			           frag,
-			           capacity);
+			           stroll_min(capacity,
+			                      galv_buff_capacity(buffer) -
+			                      galv_buff_avail_head(buffer)));
 			return frag;
 		}
 
@@ -361,8 +371,9 @@ galv_sess_msg_head_size(const struct galv_sess_head * __restrict header)
 	galv_assert_intern(stroll_aligned((size_t)&header->size,
 	                                  sizeof(header->size)));
 
-#warning FIXME: do not convert from network byte order if unix socket !
-	return (size_t)be16toh(header->size) + 1;
+#warning FIXME: convert from network byte order if not unix socket !
+	//return (size_t)be16toh(header->size) + 1;
+	return (size_t)header->size + 1;
 }
 
 /******************************************************************************
@@ -788,7 +799,7 @@ galv_sess_copyn_drain_buffq(struct galv_sess_conn * __restrict  session,
 	size_t             busy = galv_buff_busy(buff);
 
 	while (size > busy) {
-		galv_assert_intern(size < galv_buff_queue_busy(buffq));
+		galv_assert_intern(size <= galv_buff_queue_busy(buffq));
 		galv_assert_intern(busy);
 
 		memcpy(data, galv_buff_data(buff), busy);
@@ -874,7 +885,6 @@ galv_sess_recv_sgmt_head(struct galv_sess_conn * __restrict         session,
 	galv_assert_intern(message->multi == GALV_SESS_HEAD_CONT_MULTI);
 	galv_assert_intern(message->type < GALV_SESS_HEAD_TYPE_NR);
 	galv_assert_intern(recvq);
-	galv_assert_intern(!galv_buff_queue_empty(recvq));
 
 	if (galv_buff_queue_busy(recvq) >= sizeof(struct galv_sess_head)) {
 		struct galv_sess_head    head;
@@ -933,7 +943,7 @@ galv_sess_recv_sgmt_frag(struct galv_sess_conn * __restrict   session,
 
 	if (!galv_buff_queue_empty(recvq)) {
 		struct galv_frag_list * frags = &message->frags;
-		struct galv_frag *      frag = (!galv_frag_list_empty(frags))
+		struct galv_frag *      frag = !galv_frag_list_empty(frags)
 		                               ? galv_frag_list_last(frags)
 		                               : NULL;
 		struct galv_sess_sgmt * sgmt = &message->sgmt;
@@ -946,9 +956,7 @@ galv_sess_recv_sgmt_frag(struct galv_sess_conn * __restrict   session,
 			frag = galv_sess_create_frag(
 				session,
 				acceptor,
-				stroll_min(sgmt->size - sgmt->busy,
-				           galv_buff_capacity(buff) -
-				           galv_buff_avail_head(buff)),
+				sgmt->size - sgmt->busy,
 				buff);
 			if (!frag)
 				return -errno;
@@ -1306,7 +1314,7 @@ galv_sess_recv_new_msg(struct galv_sess_conn * __restrict   session,
 				/*
 				 * Could not even fetch message header: give up
 				 * so that we may retry next time we are called
-				 * since data are still sitting in the
+				 * since data are still sitting into the
 				 * underlying buffer...
 				 */
 				break;
@@ -1765,10 +1773,11 @@ galv_sess_open_accept(
 	                             (unsigned int)max_frag,
 	                             sizeof(struct galv_frag),
 	                             stroll_page_size());
-	stroll_falloc_init_per_block(&acceptor->buff_alloc,
-	                             (unsigned int)max_buff,
-	                             config->buff_capa,
-	                             acceptor->buff_per_sess);
+	stroll_falloc_init_per_block(
+		&acceptor->buff_alloc,
+		(unsigned int)max_buff,
+		sizeof(struct galv_buff) + config->buff_capa,
+		acceptor->buff_per_sess);
 	stroll_falloc_init_block_size(&acceptor->sess_alloc,
 	                              (unsigned int)conn_nr,
 	                              sizeof(struct galv_sess_conn),
