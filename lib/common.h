@@ -44,8 +44,8 @@ extern struct elog * galv_logger;
 			         _severity, \
 			         "galv:" _format ": %s (%d).", \
 			         ## __VA_ARGS__, \
-			         strerror(-(_code)), \
-			         -(_code)); \
+			         strerror(_code), \
+			         _code); \
 	} while (0)
 
 #define GALV_RATELIM_BURST (5U)

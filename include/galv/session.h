@@ -134,8 +134,9 @@ struct galv_sess_accept_conf {
 #define GALV_SESS_PLOAD_SIZE_MAX \
 	STROLL_CONCAT(CONFIG_GALV_SESS_PLOAD_SIZE_MAX, U)
 
+#warning set me to 128!
 #define GALV_SESS_BUFF_CAPA_MIN \
-	(128U)
+	(8U)
 
 #define GALV_SESS_BUFF_CAPA_MAX \
 	STROLL_CONCAT(CONFIG_GALV_SESS_BUFF_CAPA_MAX, U)

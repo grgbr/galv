@@ -1000,13 +1000,9 @@ galv_sess_recv_sgmt(struct galv_sess_conn * __restrict   session,
 		                               message,
 		                               recvq);
 		if (ret) {
-			if (ret != -EAGAIN)
-				galv_ratelim_pinfo(
-					-ret,
-					"session: receive segment rejected",
-					" [id:%u]",
-					message->xchg);
-			return ret;
+			if (ret == -EAGAIN)
+				return ret;
+			goto err;
 		}
 
 		galv_debug("session: receive segment started "
@@ -1026,12 +1022,9 @@ galv_sess_recv_sgmt(struct galv_sess_conn * __restrict   session,
 	} while (!ret && !galv_sess_sgmt_full(sgmt));
 
 	if (ret) {
-		if (ret != -EAGAIN)
-			galv_ratelim_pinfo(-ret,
-			                   "session: segment receival failed",
-			                   " [id:%u]",
-			                   message->xchg);
-		return ret;
+		if (ret == -EAGAIN)
+			return ret;
+		goto err;
 	}
 	
 	if (galv_sess_sgmt_full(sgmt)) {
@@ -1047,6 +1040,13 @@ galv_sess_recv_sgmt(struct galv_sess_conn * __restrict   session,
 	}
 
 	return 0;
+
+err:
+	galv_pdebug(-ret,
+	            "session: receive segment failed [id:%u]",
+	            message->xchg);
+
+	return ret;
 }
 
 static
@@ -1244,7 +1244,7 @@ galv_sess_recv_msg(struct galv_sess_conn * __restrict   session,
 		if (ret != -EAGAIN)
 			galv_ratelim_pinfo(-ret,
 			                   "session: receive message failed",
-			                   " [id:%u]: ",
+			                   " [id:%u]",
 			                   message->xchg);
 		return ret;
 	}

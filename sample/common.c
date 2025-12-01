@@ -3,7 +3,7 @@
 #include <utils/signal.h>
 
 static const struct elog_stdio_conf galvsmpl_log_cfg = {
-	.super.severity = ELOG_INFO_SEVERITY,
+	.super.severity = ELOG_DEBUG_SEVERITY,
 	.format         = ELOG_TAG_FMT
 };
 

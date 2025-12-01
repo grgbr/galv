@@ -27,6 +27,7 @@ send_mult()
 	done | nc -U -N ./sock
 }
 
+send_mult 13 8
 #send_mult 1 256
 
 #send_mult 4088 256
@@ -34,7 +35,7 @@ send_mult()
 #send_mult 4090 256
 #send_mult 4091 256
 #send_mult 4092 256
-send_mult 4093 256
+#send_mult 4093 256
 #send_mult 4094 256
 #send_mult 4095 256
 #send_mult 4096 256
