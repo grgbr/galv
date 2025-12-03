@@ -35,7 +35,8 @@ struct galv_sess_conn {
 	galv_accept_assert_api(&(_accept)->base); \
 	galv_sess_assert_ops_api((_accept)->ops); \
 	galv_assert_api((_accept)->max_pload); \
-	galv_assert_api(stroll_aligned((_accept)->max_pload, __WORDSIZE)); \
+	galv_assert_api(stroll_aligned((_accept)->max_pload, \
+	                               __WORDSIZE / CHAR_BIT)); \
 	galv_assert_api((_accept)->max_pload <= GALV_SESS_PLOAD_SIZE_MAX); \
 	galv_assert_api((_accept)->frag_per_sess == \
 	                stroll_max((_accept)->buff_per_sess, \
@@ -47,7 +48,8 @@ struct galv_sess_conn {
 	galv_accept_assert_intern(&(_accept)->base); \
 	galv_sess_assert_ops_intern((_accept)->ops); \
 	galv_assert_intern((_accept)->max_pload); \
-	galv_assert_intern(stroll_aligned((_accept)->max_pload, __WORDSIZE)); \
+	galv_assert_intern(stroll_aligned((_accept)->max_pload, \
+	                                  __WORDSIZE / CHAR_BIT)); \
 	galv_assert_intern((_accept)->max_pload <= GALV_SESS_PLOAD_SIZE_MAX); \
 	galv_assert_intern((_accept)->frag_per_sess == \
 	                   stroll_max((_accept)->buff_per_sess, \
@@ -194,7 +196,7 @@ galv_sess_create_frag(struct galv_sess_conn * __restrict   session,
 	galv_sess_assert_accept_intern(acceptor);
 	galv_assert_intern(capacity);
 	galv_assert_intern(buffer);
-	galv_assert_intern(capacity <= galv_buff_capacity(buffer));
+	galv_assert_intern(capacity <= STROLL_BUFF_CAPACITY_MAX);
 
 	struct galv_frag * frag;
 	int                err;
@@ -1703,8 +1705,10 @@ galv_sess_config_accept(
 
 	config->backlog = backlog;
 	config->conn_flags = conn_flags;
-	config->max_pload = stroll_align_upper(max_pload, __WORDSIZE);
-	config->buff_capa = stroll_align_upper(buff_capa, __WORDSIZE);
+	config->max_pload = stroll_align_upper(max_pload,
+	                                       __WORDSIZE / CHAR_BIT);
+	config->buff_capa = stroll_align_upper(buff_capa,
+	                                       __WORDSIZE / CHAR_BIT);
 }
 
 int

@@ -18,7 +18,8 @@
 	                  ETUX_SOCK_ACCEPT_INVALID_FLAGS)); \
 	galv_assert_api((_conf)->max_pload); \
 	galv_assert_api((_conf)->max_pload <= GALV_SESS_PLOAD_SIZE_MAX); \
-	galv_assert_api(stroll_aligned((_conf)->max_pload, __WORDSIZE)); \
+	galv_assert_api(stroll_aligned((_conf)->max_pload, \
+	                               __WORDSIZE / CHAR_BIT)); \
 	galv_assert_api((_conf)->buff_capa >= GALV_SESS_BUFF_CAPA_MIN); \
 	galv_assert_api((_conf)->buff_capa <= GALV_SESS_BUFF_CAPA_MAX)
 

@@ -137,7 +137,9 @@ galv_buff_summon(struct stroll_falloc * __restrict alloc, size_t capacity)
 		return NULL;
 
 	stroll_buff_setup(&buff->base,
-	                  capacity ? capacity : stroll_falloc_chunk_size(alloc),
+	                  capacity ? capacity
+	                           : stroll_falloc_chunk_size(alloc) -
+	                             sizeof(struct galv_buff),
 	                  0,
 	                  0);
 	buff->queue = NULL;

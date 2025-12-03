@@ -134,9 +134,8 @@ struct galv_sess_accept_conf {
 #define GALV_SESS_PLOAD_SIZE_MAX \
 	STROLL_CONCAT(CONFIG_GALV_SESS_PLOAD_SIZE_MAX, U)
 
-#warning set me to 128!
 #define GALV_SESS_BUFF_CAPA_MIN \
-	(8U)
+	(128U)
 
 #define GALV_SESS_BUFF_CAPA_MAX \
 	STROLL_CONCAT(CONFIG_GALV_SESS_BUFF_CAPA_MAX, U)
@@ -154,12 +153,12 @@ struct galv_sess_accept_conf {
 		.max_pload  = compile_eval( \
 			(_max_pload) && \
 			((_max_pload) <= GALV_SESS_PLOAD_SIZE_MAX), \
-			stroll_align_upper(_max_pload, __WORDSIZE), \
+			stroll_align_upper(_max_pload, __WORDSIZE / CHAR_BIT), \
 			"invalid maximum session payload size"), \
 		.buff_capa  = compile_eval( \
 			((_buff_capa) >= GALV_SESS_BUFF_CAPA_MIN) && \
 			((_buff_capa) <= GALV_SESS_BUFF_CAPA_MAX), \
-			stroll_align_upper(_buff_capa, __WORDSIZE), \
+			stroll_align_upper(_buff_capa, __WORDSIZE / CHAR_BIT), \
 			"invalid session buffer capacity") \
 	}
 
