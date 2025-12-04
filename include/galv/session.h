@@ -79,17 +79,20 @@ galv_sess_msg_push_tail(struct galv_sess_msg * __restrict message,
  * Session connection
  ******************************************************************************/
 
-struct galv_sess_conn;
-
 typedef int galv_sess_xfer_fn(struct galv_sess_conn * __restrict);
 
 struct galv_sess_ops {
 	galv_sess_xfer_fn * xfer;
 };
 
-extern bool
+static inline
+bool
 galv_sess_may_pull_msg(const struct galv_sess_conn * __restrict session)
-	__export_public;
+{
+	galv_sess_assert_conn_api(session);
+
+	return !galv_sess_msg_queue_empty(&session->recv_msgq);
+}
 
 extern struct galv_sess_msg *
 galv_sess_pull_msg(struct galv_sess_conn * __restrict session)

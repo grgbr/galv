@@ -6,28 +6,113 @@
  ******************************************************************************/
 
 #include "session.h"
-#include "conn.h"
 #include "fragment.h"
 #include "accept.h"
 #include <stroll/page.h>
 #include <utils/string.h>
 
-struct galv_sess_msg_queue {
-	struct stroll_slist base;
-	unsigned long       bmap[STROLL_FBMAP_WORD_NR(GALV_SESS_MSG_XCHG_NR)];
-};
+/******************************************************************************
+ * Session protocol segment
+ ******************************************************************************/
 
-struct galv_sess_conn {
-	struct galv_conn *         conn;
-	unsigned int               msg_cnt;
-	unsigned int               frag_cnt;
-	unsigned int               buff_cnt;
-	struct galv_sess_msg_queue recv_msgq;
-	struct galv_buff_queue     recv_buffq;
-};
+#define galv_sess_assert_sgmt_intern(_sgmt) \
+	galv_assert_intern(_sgmt); \
+	galv_assert_intern((_sgmt)->size <= GALV_SESS_SGMT_SIZE_MAX); \
+	galv_assert_intern(!(_sgmt)->size || \
+	                   ((_sgmt)->busy <= (_sgmt)->size)); \
+	galv_assert_intern((_sgmt)->multi >= 0); \
+	galv_assert_intern((_sgmt)->multi <= GALV_SESS_HEAD_MULTI_NR); \
+	galv_assert_intern(!(_sgmt)->size || \
+	                   ((_sgmt)->multi != GALV_SESS_HEAD_MULTI_NR))
+
+static
+enum galv_sess_head_multi
+galv_sess_sgmt_type(const struct galv_sess_sgmt * __restrict segment)
+{
+	galv_sess_assert_sgmt_intern(segment);
+
+	return segment->multi;
+}
+
+static
+size_t
+galv_sess_sgmt_size(const struct galv_sess_sgmt * __restrict segment)
+{
+	galv_sess_assert_sgmt_intern(segment);
+
+	return segment->size;
+}
+
+static
+bool
+galv_sess_sgmt_loading(const struct galv_sess_sgmt * __restrict segment)
+{
+	galv_sess_assert_sgmt_intern(segment);
+
+	return !!segment->size;
+}
+
+static
+bool
+galv_sess_last_sgmt_complete(const struct galv_sess_sgmt * __restrict segment)
+{
+	galv_sess_assert_sgmt_intern(segment);
+
+	return !segment->size &&
+	       segment->busy &&
+	       segment->multi == GALV_SESS_HEAD_LAST_MULTI;
+}
+
+static
+bool
+galv_sess_sgmt_full(const struct galv_sess_sgmt * __restrict segment)
+{
+	galv_sess_assert_sgmt_intern(segment);
+	galv_assert_intern(segment->multi != GALV_SESS_HEAD_MULTI_NR);
+	galv_assert_intern(segment->size);
+
+	return segment->busy == segment->size;
+}
+
+static
+void
+galv_sess_start_sgmt(struct galv_sess_sgmt * __restrict segment,
+                     size_t                             size,
+                     enum galv_sess_head_multi          multi)
+{
+	galv_sess_assert_sgmt_intern(segment);
+	galv_assert_intern(!segment->size);
+	galv_assert_intern(size);
+	galv_assert_intern(size <= GALV_SESS_SGMT_SIZE_MAX);
+	galv_assert_intern(multi >= 0);
+	galv_assert_intern(multi < GALV_SESS_HEAD_MULTI_NR);
+
+	segment->size = size;
+	segment->busy = 0;
+	segment->multi = multi;
+}
+
+static
+void
+galv_sess_stop_sgmt(struct galv_sess_sgmt * __restrict segment)
+{
+	galv_sess_assert_sgmt_intern(segment);
+
+	segment->size = 0;
+}
+
+static
+void
+galv_sess_setup_sgmt(struct galv_sess_sgmt * __restrict segment)
+{
+	galv_assert_intern(segment);
+
+	segment->size = 0;
+	segment->multi = GALV_SESS_HEAD_MULTI_NR;
+}
 
 /******************************************************************************
- * Various session helpers
+ * Various internal session definitions and helpers
  ******************************************************************************/
 
 #define galv_sess_assert_accept_api(_accept) \
@@ -56,15 +141,6 @@ struct galv_sess_conn {
 	                              GALV_SESS_MSG_XCHG_NR)); \
 	galv_assert_intern((_accept)->buff_per_sess)
 
-#define galv_sess_assert_conn_api(_sess) \
-	galv_assert_api(_sess); \
-	galv_assert_api((_sess)->conn); \
-	galv_assert_api((_sess)->msg_cnt <= GALV_SESS_MSG_XCHG_NR); \
-	galv_assert_api((_sess)->frag_cnt <= \
-	                galv_sess_conn_acceptor(_sess)->frag_per_sess); \
-	galv_assert_api((_sess)->buff_cnt <= \
-	                galv_sess_conn_acceptor(_sess)->buff_per_sess)
-
 #define galv_sess_assert_conn_intern(_sess) \
 	galv_assert_intern(_sess); \
 	galv_assert_intern((_sess)->conn); \
@@ -72,25 +148,10 @@ struct galv_sess_conn {
 	galv_assert_intern((_sess)->frag_cnt <= \
 	                   galv_sess_conn_acceptor(_sess)->frag_per_sess); \
 	galv_assert_intern((_sess)->buff_cnt <= \
-	                   galv_sess_conn_acceptor(_sess)->buff_per_sess)
-
-static inline
-struct galv_sess_accept *
-galv_sess_from_accept(const struct galv_accept * __restrict acceptor)
-{
-	galv_assert_intern(acceptor);
-
-	return containerof(acceptor, struct galv_sess_accept, base);
-}
-
-static inline
-struct galv_sess_accept *
-galv_sess_conn_acceptor(const struct galv_sess_conn * __restrict session)
-{
-	galv_assert_intern(session);
-
-	return galv_sess_from_accept(galv_conn_acceptor(session->conn));
-}
+	                   galv_sess_conn_acceptor(_sess)->buff_per_sess); \
+	galv_assert_intern( \
+		!(_sess)->recv_msg || \
+		({ galv_sess_assert_sgmt_api(&(_sess)->sgmt); true; }))
 
 static
 struct galv_sess_conn *
@@ -365,7 +426,7 @@ galv_sess_head_xchg(const struct galv_sess_head * __restrict header)
 
 	return header->xchg;
 }
-static inline
+static
 size_t
 galv_sess_msg_head_size(const struct galv_sess_head * __restrict header)
 {
@@ -379,99 +440,14 @@ galv_sess_msg_head_size(const struct galv_sess_head * __restrict header)
 }
 
 /******************************************************************************
- * Session protocol segment
- ******************************************************************************/
-
-#define galv_sess_assert_sgmt_intern(_sgmt) \
-	galv_assert_intern(_sgmt); \
-	galv_assert_intern((_sgmt)->size <= GALV_SESS_SGMT_SIZE_MAX); \
-	galv_assert_intern((_sgmt)->busy <= (_sgmt)->size)
-
-static
-size_t
-galv_sess_sgmt_size(const struct galv_sess_sgmt * __restrict segment)
-{
-	galv_sess_assert_sgmt_intern(segment);
-
-	return segment->size;
-}
-
-static
-bool
-galv_sess_sgmt_loading(const struct galv_sess_sgmt * __restrict segment)
-{
-	galv_sess_assert_sgmt_intern(segment);
-
-	return !!galv_sess_sgmt_size(segment);
-}
-
-static
-bool
-galv_sess_sgmt_full(const struct galv_sess_sgmt * __restrict segment)
-{
-	galv_sess_assert_sgmt_intern(segment);
-
-	return segment->busy == galv_sess_sgmt_size(segment);
-}
-
-static
-void
-galv_sess_start_sgmt(struct galv_sess_sgmt * __restrict segment,
-                     size_t                             size)
-{
-	galv_sess_assert_sgmt_intern(segment);
-	galv_assert_intern(!segment->busy);
-	galv_assert_intern(size <= GALV_SESS_SGMT_SIZE_MAX);
-
-#warning Should init with busy = 0 and cleanup galv_sess_stop_sgmt() in addition to assertions
-	segment->size = size;
-}
-
-static
-void
-galv_sess_stop_sgmt(struct galv_sess_sgmt * __restrict segment)
-{
-	galv_assert_intern(segment);
-
-	segment->size = 0;
-	segment->busy = 0;
-}
-
-/******************************************************************************
  * Session protocol message
  ******************************************************************************/
 
 #define galv_sess_assert_msg_intern(_msg) \
 	galv_assert_intern(_msg); \
-	galv_assert_intern((_msg)->multi >= 0); \
-	galv_assert_intern((_msg)->multi <= GALV_SESS_HEAD_MULTI_NR); \
 	galv_assert_intern((_msg)->type >= 0); \
 	galv_assert_intern((_msg)->type <= GALV_SESS_HEAD_TYPE_NR); \
-	galv_assert_intern((_msg)->xchg < GALV_SESS_MSG_XCHG_NR); \
-	galv_sess_assert_sgmt_intern(&(_msg)->sgmt)
-
-static
-bool
-galv_sess_msg_loading(const struct galv_sess_msg * __restrict message)
-{
-	galv_sess_assert_msg_intern(message);
-
-	return message->multi != GALV_SESS_HEAD_MULTI_NR;
-}
-
-static
-bool
-galv_sess_msg_full(const struct galv_sess_msg * __restrict message)
-{
-	galv_sess_assert_msg_intern(message);
-
-	bool full = (message->multi == GALV_SESS_HEAD_LAST_MULTI) &&
-	            galv_sess_sgmt_full(&message->sgmt);
-
-	galv_assert_intern(!full || message->size);
-
-	return full;
-}
+	galv_assert_intern((_msg)->xchg < GALV_SESS_MSG_XCHG_NR)
 
 static
 void
@@ -480,10 +456,8 @@ galv_sess_init_msg(struct galv_sess_msg * __restrict message)
 	galv_assert_intern(message);
 
 	message->size = 0;
-	message->multi = GALV_SESS_HEAD_MULTI_NR;
 	message->type = GALV_SESS_HEAD_TYPE_NR;
 	message->xchg = 0;
-	galv_sess_stop_sgmt(&message->sgmt);
 	galv_frag_init_list(&message->frags);
 }
 
@@ -509,18 +483,6 @@ galv_sess_fini_msg(struct galv_sess_msg * __restrict    message,
  * Session message queue
  ******************************************************************************/
 
-static inline
-bool
-galv_sess_msg_queue_empty(const struct galv_sess_msg_queue * __restrict queue)
-{
-	galv_assert_api(queue);
-	galv_assert_api(stroll_slist_empty(&queue->base) ^
-	                _stroll_fbmap_test_all(queue->bmap,
-	                                       GALV_SESS_MSG_XCHG_NR));
-
-	return stroll_slist_empty(&queue->base);
-}
-
 static
 bool
 galv_sess_may_queue_msg(const struct galv_sess_msg_queue * __restrict queue,
@@ -536,49 +498,12 @@ galv_sess_may_queue_msg(const struct galv_sess_msg_queue * __restrict queue,
 }
 
 static
-struct galv_sess_msg *
-galv_sess_msg_queue_head(const struct galv_sess_msg_queue * __restrict queue)
-{
-	galv_assert_intern(queue);
-	galv_assert_intern(!galv_sess_msg_queue_empty(queue));
-
-	struct galv_sess_msg * msg;
-
-	msg = stroll_slist_first_entry(&queue->base,
-	                               struct galv_sess_msg,
-	                               queue);
-	galv_assert_intern(_stroll_fbmap_test(queue->bmap, msg->xchg));
-	galv_sess_assert_msg_intern(msg);
-
-	return msg;
-}
-
-static
-struct galv_sess_msg *
-galv_sess_msg_queue_tail(const struct galv_sess_msg_queue * __restrict queue)
-{
-	galv_assert_intern(queue);
-	galv_assert_intern(!galv_sess_msg_queue_empty(queue));
-
-	struct galv_sess_msg * msg;
-
-	msg = stroll_slist_last_entry(&queue->base,
-	                              struct galv_sess_msg,
-	                              queue);
-	galv_assert_intern(_stroll_fbmap_test(queue->bmap, msg->xchg));
-	galv_sess_assert_msg_intern(msg);
-
-	return msg;
-}
-
-static
 void
 galv_sess_nqueue_msg(struct galv_sess_msg_queue * __restrict queue,
                      struct galv_sess_msg * __restrict       message)
 {
 	galv_assert_intern(queue);
 	galv_sess_assert_msg_intern(message);
-	galv_assert_intern(galv_sess_msg_loading(message));
 	galv_assert_intern(galv_sess_may_queue_msg(queue, message));
 
 	stroll_slist_nqueue_back(&queue->base, &message->queue);
@@ -628,37 +553,45 @@ galv_sess_fini_msg_queue(struct galv_sess_msg_queue * __restrict queue)
  * Session connection
  ******************************************************************************/
 
+static
 bool
-galv_sess_may_pull_msg(const struct galv_sess_conn * __restrict session)
+galv_sess_msg_loading(const struct galv_sess_conn * __restrict session)
 {
 	galv_sess_assert_conn_intern(session);
 
-	if (!galv_sess_msg_queue_empty(&session->recv_msgq)) {
-		const struct galv_sess_msg * msg;
+	return galv_sess_sgmt_type(&session->sgmt) != GALV_SESS_HEAD_MULTI_NR;
+}
 
-		msg = galv_sess_msg_queue_head(&session->recv_msgq);
-		if (galv_sess_msg_full(msg))
-			return true;
-	}
+static
+bool
+galv_sess_msg_complete(
+	const struct galv_sess_conn * __restrict session,
+	const struct galv_sess_msg * __restrict  message __unused)
+{
+	galv_sess_assert_conn_intern(session);
+	galv_sess_assert_msg_intern(message);
 
-	return false;
+	bool full = galv_sess_last_sgmt_complete(&session->sgmt);
+
+	galv_assert_intern(!full ||
+	                   (message->size &&
+	                    (message->type != GALV_SESS_HEAD_TYPE_NR)));
+
+	return full;
 }
 
 struct galv_sess_msg *
 galv_sess_pull_msg(struct galv_sess_conn * __restrict session)
 {
 	galv_sess_assert_conn_api(session);
+	galv_assert_api(!galv_sess_msg_queue_empty(&session->recv_msgq));
 
-	if (!galv_sess_msg_queue_empty(&session->recv_msgq)) {
-		struct galv_sess_msg * msg;
+	struct galv_sess_msg * msg;
 
-		msg = galv_sess_msg_queue_head(&session->recv_msgq);
-		galv_sess_assert_msg_intern(msg);
-		if (galv_sess_msg_full(msg))
-			return galv_sess_dqueue_msg(&session->recv_msgq);
-	}
+	msg = galv_sess_dqueue_msg(&session->recv_msgq);
+	galv_sess_assert_msg_intern(msg);
 
-	return NULL;
+	return msg;
 }
 
 static
@@ -831,8 +764,9 @@ galv_sess_open_conn(struct galv_sess_conn * __restrict session,
 	session->msg_cnt = 0;
 	session->frag_cnt = 0;
 	session->buff_cnt = 0;
-	galv_buff_init_queue(&session->recv_buffq);
+	session->recv_msg = NULL;
 	galv_sess_init_msg_queue(&session->recv_msgq);
+	galv_buff_init_queue(&session->recv_buffq);
 
 	galv_debug("session: connection opened [addr:%p]", session);
 }
@@ -856,6 +790,8 @@ galv_sess_close_conn(struct galv_sess_conn * __restrict session)
 		                       galv_buff_dqueue(&session->recv_buffq));
 	galv_buff_fini_queue(&session->recv_buffq);
 
+	if (session->recv_msg)
+		galv_sess_destroy_msg( session, accept, session->recv_msg);
 	while (!galv_sess_msg_queue_empty(&session->recv_msgq))
 		galv_sess_destroy_msg(
 			session,
@@ -882,10 +818,12 @@ galv_sess_recv_sgmt_head(struct galv_sess_conn * __restrict         session,
                          struct galv_buff_queue * __restrict        recvq)
 {
 	galv_sess_assert_conn_intern(session);
+	galv_assert_intern(!galv_sess_sgmt_loading(&session->sgmt));
+	galv_assert_intern(galv_sess_sgmt_type(&session->sgmt) ==
+	                   GALV_SESS_HEAD_CONT_MULTI);
 	galv_sess_assert_accept_intern(acceptor);
 	galv_sess_assert_msg_intern(message);
-	galv_assert_intern(message->multi == GALV_SESS_HEAD_CONT_MULTI);
-	galv_assert_intern(message->type < GALV_SESS_HEAD_TYPE_NR);
+	galv_assert_intern(message->type != GALV_SESS_HEAD_TYPE_NR);
 	galv_assert_intern(recvq);
 
 	if (galv_buff_queue_busy(recvq) >= sizeof(struct galv_sess_head)) {
@@ -917,8 +855,9 @@ galv_sess_recv_sgmt_head(struct galv_sess_conn * __restrict         session,
 			 */
 			return -EMSGSIZE;
 
-		message->multi = galv_sess_head_multi(&head);
-		galv_sess_start_sgmt(&message->sgmt, (size_t)sz);
+		galv_sess_start_sgmt(&session->sgmt,
+		                     (size_t)sz,
+		                     galv_sess_head_multi(&head));
 
 		return 0;
 	}
@@ -934,13 +873,12 @@ galv_sess_recv_sgmt_frag(struct galv_sess_conn * __restrict   session,
                          struct galv_buff_queue * __restrict  recvq)
 {
 	galv_sess_assert_conn_intern(session);
+	galv_assert_intern(galv_sess_sgmt_loading(&session->sgmt));
+	galv_assert_intern(!galv_sess_sgmt_full(&session->sgmt));
 	galv_sess_assert_accept_intern(acceptor);
 	galv_sess_assert_msg_intern(message);
-	galv_assert_intern(galv_sess_msg_loading(message));
-	galv_assert_intern(message->multi != GALV_SESS_HEAD_MULTI_NR);
+	galv_assert_intern(galv_sess_msg_loading(session));
 	galv_assert_intern(message->type != GALV_SESS_HEAD_TYPE_NR);
-	galv_assert_intern(galv_sess_sgmt_loading(&message->sgmt));
-	galv_assert_intern(!galv_sess_sgmt_full(&message->sgmt));
 	galv_assert_intern(recvq);
 
 	if (!galv_buff_queue_empty(recvq)) {
@@ -948,7 +886,7 @@ galv_sess_recv_sgmt_frag(struct galv_sess_conn * __restrict   session,
 		struct galv_frag *      frag = !galv_frag_list_empty(frags)
 		                               ? galv_frag_list_last(frags)
 		                               : NULL;
-		struct galv_sess_sgmt * sgmt = &message->sgmt;
+		struct galv_sess_sgmt * sgmt = &session->sgmt;
 		struct galv_buff *      buff = galv_buff_queue_first(recvq);
 		size_t                  bytes;
 
@@ -988,11 +926,10 @@ galv_sess_recv_sgmt(struct galv_sess_conn * __restrict   session,
 	galv_sess_assert_conn_intern(session);
 	galv_sess_assert_accept_intern(acceptor);
 	galv_sess_assert_msg_intern(message);
-	galv_assert_intern(galv_sess_msg_loading(message));
-	galv_assert_intern(message->multi != GALV_SESS_HEAD_MULTI_NR);
+	galv_assert_intern(galv_sess_msg_loading(session));
 	galv_assert_intern(message->type != GALV_SESS_HEAD_TYPE_NR);
 
-	struct galv_sess_sgmt *  sgmt = &message->sgmt;
+	struct galv_sess_sgmt *  sgmt = &session->sgmt;
 	struct galv_buff_queue * recvq = &session->recv_buffq;
 	int                      ret;
 
@@ -1011,8 +948,8 @@ galv_sess_recv_sgmt(struct galv_sess_conn * __restrict   session,
 		           "[id:%u type:%s multi:%s size:%zu]",
 		           message->xchg,
 		           galv_sess_msg_type_str(message->type),
-		           galv_sess_msg_multi_str(message->multi),
-		           message->sgmt.size);
+		           galv_sess_msg_multi_str(galv_sess_sgmt_type(sgmt)),
+		           galv_sess_sgmt_size(sgmt));
 	}
 
 	galv_assert_intern(!galv_sess_sgmt_full(sgmt));
@@ -1029,17 +966,15 @@ galv_sess_recv_sgmt(struct galv_sess_conn * __restrict   session,
 		goto err;
 	}
 	
-	if (galv_sess_sgmt_full(sgmt)) {
-		galv_debug("session: receive segment complete "
-		           "[id:%u type:%s multi:%s size:%zu]",
-		           message->xchg,
-		           galv_sess_msg_type_str(message->type),
-		           galv_sess_msg_multi_str(message->multi),
-		           galv_sess_sgmt_size(sgmt));
-
-		message->size += galv_sess_sgmt_size(sgmt);
-		galv_sess_stop_sgmt(sgmt);
-	}
+	galv_assert_intern(galv_sess_sgmt_full(sgmt));
+	galv_debug("session: receive segment complete "
+	           "[id:%u type:%s multi:%s size:%zu]",
+	           message->xchg,
+	           galv_sess_msg_type_str(message->type),
+	           galv_sess_msg_multi_str(galv_sess_sgmt_type(sgmt)),
+	           galv_sess_sgmt_size(sgmt));
+	message->size += galv_sess_sgmt_size(sgmt);
+	galv_sess_stop_sgmt(sgmt);
 
 	return 0;
 
@@ -1059,11 +994,11 @@ galv_sess_recv_msg_head(struct galv_sess_conn * __restrict         session,
                         struct galv_buff_queue * __restrict        recvq)
 {
 	galv_sess_assert_conn_intern(session);
+	galv_assert_intern(!galv_sess_msg_loading(session));
+	galv_assert_intern(!galv_sess_sgmt_loading(&session->sgmt));
 	galv_sess_assert_accept_intern(acceptor);
 	galv_sess_assert_msg_intern(message);
-	galv_assert_intern(!galv_sess_msg_loading(message));
 	galv_assert_intern(!message->size);
-	galv_assert_intern(message->multi == GALV_SESS_HEAD_MULTI_NR);
 	galv_assert_intern(message->type == GALV_SESS_HEAD_TYPE_NR);
 	galv_assert_intern(galv_frag_list_empty(&message->frags));
 	galv_assert_intern(recvq);
@@ -1091,10 +1026,12 @@ galv_sess_recv_msg_head(struct galv_sess_conn * __restrict         session,
 		if (sz > acceptor->max_pload)
 			return -EMSGSIZE;
 
-		message->multi = galv_sess_head_multi(&head);
 		message->type = type;
 		message->xchg = (unsigned int)galv_sess_head_xchg(&head);
-		galv_sess_start_sgmt(&message->sgmt, (size_t)sz);
+
+		galv_sess_start_sgmt(&session->sgmt,
+		                     (size_t)sz,
+		                     galv_sess_head_multi(&head));
 
 		return 0;
 	}
@@ -1201,13 +1138,14 @@ galv_sess_recv_msg(struct galv_sess_conn * __restrict   session,
 	galv_sess_assert_conn_intern(session);
 	galv_sess_assert_accept_intern(acceptor);
 	galv_sess_assert_msg_intern(message);
-	galv_assert_intern(!galv_sess_msg_full(message));
-	galv_assert_intern(&session->recv_buffq);
 	galv_assert_intern(!galv_buff_queue_empty(&session->recv_buffq));
 
 	int ret;
 
-	if (!galv_sess_msg_loading(message)) {
+	if (!galv_sess_msg_loading(session)) {
+		/*
+		 * Message loading has not started yet: parse initial segment.
+		 */
 		ret = galv_sess_recv_msg_head(session,
 		                              acceptor,
 		                              message,
@@ -1230,17 +1168,19 @@ galv_sess_recv_msg(struct galv_sess_conn * __restrict   session,
 			return -EPROTO;
 		}
 
-		galv_debug("session: receive message started "
-		           "[id:%u type:%s multi:%s]",
-		           message->xchg,
-		           galv_sess_msg_type_str(message->type),
-		           galv_sess_msg_multi_str(message->multi));
+		galv_debug(
+			"session: receive message started "
+			"[id:%u type:%s multi:%s]",
+			message->xchg,
+			galv_sess_msg_type_str(message->type),
+			galv_sess_msg_multi_str(
+				galv_sess_sgmt_type(&session->sgmt)));
 	}
 
-	galv_assert_intern(!galv_sess_msg_full(message));
+	galv_assert_intern(!galv_sess_msg_complete(session, message));
 	do {
 		ret = galv_sess_recv_sgmt(session, acceptor, message);
-	} while (!ret && !galv_sess_msg_full(message));
+	} while (!ret && !galv_sess_msg_complete(session, message));
 
 	if (ret) {
 		if (ret != -EAGAIN)
@@ -1251,13 +1191,13 @@ galv_sess_recv_msg(struct galv_sess_conn * __restrict   session,
 		return ret;
 	}
 
-	if (galv_sess_msg_full(message))
-		galv_debug("session: receive message complete "
-		           "[id:%u type:%s multi:%s size:%zu]",
-		           message->xchg,
-		           galv_sess_msg_type_str(message->type),
-		           galv_sess_msg_multi_str(message->multi),
-		           message->size);
+	galv_assert_intern(galv_sess_msg_complete(session, message));
+	galv_debug("session: receive message complete "
+	           "[id:%u type:%s multi:%s size:%zu]",
+	           message->xchg,
+	           galv_sess_msg_type_str(message->type),
+	           galv_sess_msg_multi_str(galv_sess_sgmt_type(&session->sgmt)),
+	           message->size);
 
 	return 0;
 }
@@ -1265,22 +1205,24 @@ galv_sess_recv_msg(struct galv_sess_conn * __restrict   session,
 static
 int
 galv_sess_recv_tail_msg(struct galv_sess_conn * __restrict   session,
-                        struct galv_sess_accept * __restrict acceptor)
+                        struct galv_sess_accept * __restrict acceptor,
+                        struct galv_sess_msg * __restrict    message)
 {
 	galv_sess_assert_conn_intern(session);
 	galv_sess_assert_accept_intern(acceptor);
+	galv_sess_assert_msg_intern(message);
+	galv_assert_intern(session->recv_msg == message);
 
 	if (!galv_buff_queue_empty(&session->recv_buffq)) {
-		struct galv_sess_msg * msg;
+		int ret;
 
-		msg = galv_sess_msg_queue_tail(&session->recv_msgq);
-		if (!galv_sess_msg_full(msg)) {
-			int ret;
+		ret = galv_sess_recv_msg(session, acceptor, message);
+		if (ret)
+			return ret;
 
-			ret = galv_sess_recv_msg(session, acceptor, msg);
-			if (ret)
-				return ret;
-		}
+		galv_assert_intern(galv_sess_msg_complete(session, message));
+		galv_sess_nqueue_msg(&session->recv_msgq, message);
+		session->recv_msg = NULL;
 
 		return 0;
 	}
@@ -1294,6 +1236,7 @@ galv_sess_recv_new_msg(struct galv_sess_conn * __restrict   session,
                        struct galv_sess_accept * __restrict acceptor)
 {
 	galv_sess_assert_conn_intern(session);
+	galv_assert_intern(!session->recv_msg);
 	galv_sess_assert_accept_intern(acceptor);
 
 	if (!galv_buff_queue_empty(&session->recv_buffq)) {
@@ -1304,24 +1247,20 @@ galv_sess_recv_new_msg(struct galv_sess_conn * __restrict   session,
 		if (!msg)
 			return -errno;
 
+		galv_sess_setup_sgmt(&session->sgmt);
+
 		ret = galv_sess_recv_msg(session, acceptor, msg);
 		switch (ret) {
 		case 0:
+			galv_assert_intern(galv_sess_msg_complete(session,
+			                                          msg));
 			galv_sess_nqueue_msg(&session->recv_msgq, msg);
+			session->recv_msg = NULL;
 			return 0;
 
 		case -EAGAIN:
 		case -ENOBUFS:
-			if (!galv_sess_msg_loading(msg))
-				/*
-				 * Could not even fetch message header: give up
-				 * so that we may retry next time we are called
-				 * since data are still sitting into the
-				 * underlying buffer...
-				 */
-				break;
-
-			galv_sess_nqueue_msg(&session->recv_msgq, msg);
+			session->recv_msg = msg;
 			return ret;
 
 		default:
@@ -1345,8 +1284,11 @@ galv_sess_recv_msgs(struct galv_sess_conn * __restrict session)
 	int                       ret;
 	struct galv_sess_accept * accept = galv_sess_conn_acceptor(session);
 
-	if (!galv_sess_msg_queue_empty(&session->recv_msgq)) {
-		ret = galv_sess_recv_tail_msg(session, accept);
+	if (session->recv_msg) {
+		/* A (uncomplete) message is being received... */
+		ret = galv_sess_recv_tail_msg(session,
+		                              accept,
+		                              session->recv_msg);
 		if (ret)
 			return ret;
 	}

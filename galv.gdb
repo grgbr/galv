@@ -25,7 +25,8 @@ set $_galv_buff = (struct galv_buff *)($arg0)
 if $_galv_buff->node.next != 0
 	set $_galv_buff_off = (unsigned long)(&((struct galv_buff *)0)->node)
 	set $_galv_buff_next = (struct galv_buff *) \
-                     ((const char *)(($_galv_buff)->node.next) - $_galv_buff_off)
+	                       ((const char *)(($_galv_buff)->node.next) - \
+	                        $_galv_buff_off)
 else
 	set $_galv_buff_next = (struct galv_buff *)0x0
 end
@@ -295,31 +296,20 @@ else
 		if $_galv_sessmsg_type == GALV_SESS_HEAD_NOTIF_TYPE
 			set $_galv_sessmsg_type_str = "notif  "
 		else
-			set $_galv_sessmsg_type_str = "?       "
+			set $_galv_sessmsg_type_str = "?      "
 		end
-	end
-end
-set $_galv_sessmsg_multi = ($_galv_sessmsg)->multi
-if $_galv_sessmsg_multi == GALV_SESS_HEAD_CONT_MULTI
-	set $_galv_sessmsg_multi_str = "cont"
-else
-	if $_galv_sessmsg_multi == GALV_SESS_HEAD_LAST_MULTI
-		set $_galv_sessmsg_multi_str = "last"
-	else
-		set $_galv_sessmsg_multi_str = "?   "
 	end
 end
 eval "set $_galv_sessmsg_frag_indent = \"%s           \"", $_galv_sessmsg_indent
 output $_galv_sessmsg
-printf ":\n%stype:      %s                  multi: %s", \
+printf ":\n%stype: %s                  xchg: %u", \
 	$_galv_sessmsg_indent, \
 	$_galv_sessmsg_type_str, \
-	$_galv_sessmsg_multi_str
-printf "\n%sxchg:      %-3hu                      size:  %u", \
+	($_galv_sessmsg)->xchg
+printf "\n%ssize: %u", \
 	$_galv_sessmsg_indent, \
-	($_galv_sessmsg)->xchg, \
 	($_galv_sessmsg)->size
-printf "\n%snext:      (struct galv_sess_msg *) %p", \
+printf "\n%snext: (struct galv_sess_msg *) %p", \
 	$_galv_sessmsg_indent, \
 	$_galv_sessmsg_next
 printf "\n%sfragments: (struct galv_frag_list *) %p:\n", \

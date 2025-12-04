@@ -128,7 +128,8 @@ struct galv_buff *
 galv_buff_summon(struct stroll_falloc * __restrict alloc, size_t capacity)
 {
 	galv_assert_api(alloc);
-	galv_assert_api(capacity <= stroll_falloc_chunk_size(alloc));
+	galv_assert_api((capacity + sizeof(struct galv_buff)) <=
+	                stroll_falloc_chunk_size(alloc));
 
 	struct galv_buff * buff;
 
