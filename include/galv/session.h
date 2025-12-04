@@ -64,7 +64,7 @@ galv_sess_msg_xchg(const struct galv_sess_msg * __restrict message)
 /* Retrieve a pointer to user data from a message. */
 extern ssize_t
 galv_sess_msg_pull_head(struct galv_sess_msg * __restrict message,
-                        uint8_t ** __restrict             data,
+                        const uint8_t ** __restrict       data,
                         size_t                            size)
 	__export_public;
 

@@ -118,3 +118,5 @@ send_mult 8190 256
 send_mult 8191 256
 send_mult 8192 256
 send_mult 8193 256
+
+# TODO: test multipart messages, i.e., when payload size > 64k-4

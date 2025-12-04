@@ -458,7 +458,8 @@ galv_sess_init_msg(struct galv_sess_msg * __restrict message)
 	message->size = 0;
 	message->type = GALV_SESS_HEAD_TYPE_NR;
 	message->xchg = 0;
-	galv_frag_init_list(&message->frags);
+	galv_frag_init_list(&message->data_frags);
+	galv_frag_init_list(&message->free_frags);
 }
 
 static
@@ -471,8 +472,15 @@ galv_sess_fini_msg(struct galv_sess_msg * __restrict    message,
 	galv_sess_assert_conn_intern(session);
 	galv_sess_assert_accept_intern(acceptor);
 
-	while (!galv_frag_list_empty(&message->frags)) {
-		struct galv_frag * frag = galv_frag_dlist(&message->frags);
+	while (!galv_frag_list_empty(&message->data_frags)) {
+		struct galv_frag * frag = galv_frag_dlist(&message->data_frags);
+		galv_assert_intern(frag);
+
+		galv_sess_destroy_frag(session, acceptor, frag);
+	}
+
+	while (!galv_frag_list_empty(&message->free_frags)) {
+		struct galv_frag * frag = galv_frag_dlist(&message->free_frags);
 		galv_assert_intern(frag);
 
 		galv_sess_destroy_frag(session, acceptor, frag);
@@ -882,7 +890,7 @@ galv_sess_recv_sgmt_frag(struct galv_sess_conn * __restrict   session,
 	galv_assert_intern(recvq);
 
 	if (!galv_buff_queue_empty(recvq)) {
-		struct galv_frag_list * frags = &message->frags;
+		struct galv_frag_list * frags = &message->data_frags;
 		struct galv_frag *      frag = !galv_frag_list_empty(frags)
 		                               ? galv_frag_list_last(frags)
 		                               : NULL;
@@ -1000,7 +1008,7 @@ galv_sess_recv_msg_head(struct galv_sess_conn * __restrict         session,
 	galv_sess_assert_msg_intern(message);
 	galv_assert_intern(!message->size);
 	galv_assert_intern(message->type == GALV_SESS_HEAD_TYPE_NR);
-	galv_assert_intern(galv_frag_list_empty(&message->frags));
+	galv_assert_intern(galv_frag_list_empty(&message->data_frags));
 	galv_assert_intern(recvq);
 	galv_assert_intern(!galv_buff_queue_empty(recvq));
 
@@ -1037,6 +1045,42 @@ galv_sess_recv_msg_head(struct galv_sess_conn * __restrict         session,
 	}
 	else
 		return -EAGAIN;
+}
+
+ssize_t
+galv_sess_msg_pull_head(struct galv_sess_msg * __restrict message,
+                        const uint8_t ** __restrict       data,
+                        size_t                            size)
+{
+	galv_sess_assert_msg_api(message);
+	galv_assert_api(data);
+	galv_assert_api(size);
+	galv_assert_api(size <= STROLL_BUFF_CAPACITY_MAX);
+
+	if (message->size) {
+		galv_assert_intern(!galv_frag_list_empty(&message->data_frags));
+
+		struct galv_frag * frag;
+		size_t             bytes;
+
+		frag = galv_frag_list_first(&message->data_frags);
+		galv_assert_intern(galv_frag_busy(frag));
+
+		bytes = galv_frag_pull_head(frag, data, size);
+		galv_assert_intern(bytes);
+		galv_assert_intern(bytes <= message->size);
+
+		if (!galv_frag_busy(frag)) {
+			galv_frag_dlist(&message->data_frags);
+			galv_frag_nlist(&message->free_frags, frag);
+		}
+
+		message->size -= bytes;
+
+		return (ssize_t)bytes;
+	}
+
+	return -ENODATA;
 }
 
 /******************************************************************************

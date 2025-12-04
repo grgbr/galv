@@ -72,6 +72,10 @@ galv_frag_avail(const struct galv_frag * __restrict fragment)
 	return stroll_buff_avail_tail(&fragment->base);
 }
 
+/*
+ * Keep these functions just in case we would need them...
+ */
+#if 0
 static inline
 uint8_t *
 galv_frag_data(const struct galv_frag * __restrict fragment)
@@ -81,6 +85,12 @@ galv_frag_data(const struct galv_frag * __restrict fragment)
 
 	return stroll_buff_data(&fragment->base, galv_buff_mem(fragment->buff));
 }
+#endif
+
+extern size_t
+galv_frag_pull_head(struct galv_frag * __restrict fragment,
+                    const uint8_t ** __restrict   data,
+                    size_t                        size);
 
 extern size_t
 galv_frag_load(struct galv_frag * __restrict fragment,

@@ -10,6 +10,26 @@
 #include <stroll/page.h>
 
 size_t
+galv_frag_pull_head(struct galv_frag * __restrict fragment,
+                    const uint8_t ** __restrict   data,
+                    size_t                        size)
+{
+	galv_frag_assert_api(fragment);
+	galv_assert_api(stroll_buff_busy(&fragment->base));
+	galv_assert_api(data);
+	galv_assert_api(size);
+	galv_assert_api(size <= STROLL_BUFF_CAPACITY_MAX);
+
+	size_t bytes = stroll_min(stroll_buff_busy(&fragment->base), size);
+
+	*data = stroll_buff_data(&fragment->base,
+	                         galv_buff_mem(fragment->buff));
+	stroll_buff_grow_head(&fragment->base, bytes);
+
+	return bytes;
+}
+
+size_t
 galv_frag_load(struct galv_frag * __restrict fragment,
                struct galv_buff * __restrict buffer)
 {
