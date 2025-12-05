@@ -79,12 +79,12 @@ struct galv_sess_head {
  ******************************************************************************/
 
 struct galv_sess_msg {
-	size_t                    size;
-	enum galv_sess_head_type  type;
-	unsigned int              xchg;
-	struct galv_frag_list     data_frags;
-	struct galv_frag_list     free_frags;
-	struct stroll_slist_node  queue;
+	size_t                   size;
+	enum galv_sess_head_type type;
+	unsigned int             xchg;
+	struct galv_frag_list    data_frags;
+	struct galv_frag_list    free_frags;
+	struct stroll_slist_node queue;
 };
 
 #define galv_sess_assert_msg_api(_msg) \

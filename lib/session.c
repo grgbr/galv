@@ -11,6 +11,8 @@
 #include <stroll/page.h>
 #include <utils/string.h>
 
+#warning implement session message timeout
+
 /******************************************************************************
  * Session protocol segment
  ******************************************************************************/
