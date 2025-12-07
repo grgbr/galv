@@ -81,6 +81,39 @@ galv_buff_dqueue(struct galv_buff_queue * __restrict queue)
 	return buff;
 }
 
+void
+galv_buff_join_queue(struct galv_buff_queue * __restrict destination,
+                     struct galv_buff_queue * __restrict source)
+{
+	galv_buff_assert_queue_api(destination);
+	galv_buff_assert_queue_api(source);
+	galv_assert_api(!stroll_slist_empty(&source->base));
+	galv_assert_api(source->cnt);
+
+	if (!stroll_slist_empty(&source->base)) {
+		struct galv_buff * buff;
+
+		stroll_slist_foreach_entry(&source->base, buff, node) {
+			galv_buff_assert_api(buff);
+			galv_assert_api(galv_buff_busy(buff));
+
+			buff->queue = destination;
+		}
+
+		stroll_slist_splice(&destination->base,
+		                    stroll_slist_last(&destination->base),
+		                    &source->base,
+		                    stroll_slist_first(&source->base),
+		                    stroll_slist_last(&source->base));
+
+		destination->cnt += source->cnt;
+		destination->busy += source->busy;
+
+		source->cnt = 0;
+		source->busy = 0;
+	}
+}
+
 /******************************************************************************
  * Network buffer handling
  ******************************************************************************/

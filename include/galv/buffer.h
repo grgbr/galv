@@ -228,6 +228,11 @@ extern struct galv_buff *
 galv_buff_dqueue(struct galv_buff_queue * __restrict queue)
 	__export_public;
 
+extern void
+galv_buff_join_queue(struct galv_buff_queue * __restrict destination,
+                     struct galv_buff_queue * __restrict source)
+	__export_public;
+
 static inline
 void
 galv_buff_init_queue(struct galv_buff_queue * __restrict queue)
