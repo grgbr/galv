@@ -92,12 +92,16 @@ galv_buff_join_queue(struct galv_buff_queue * __restrict destination,
 
 	if (!stroll_slist_empty(&source->base)) {
 		struct galv_buff * buff;
+		unsigned int       cnt = 0;
+		size_t             busy = 0;
 
 		stroll_slist_foreach_entry(&source->base, buff, node) {
 			galv_buff_assert_api(buff);
 			galv_assert_api(galv_buff_busy(buff));
 
 			buff->queue = destination;
+			busy += galv_buff_busy(buff);
+			cnt++;
 		}
 
 		stroll_slist_splice(&destination->base,
@@ -105,10 +109,8 @@ galv_buff_join_queue(struct galv_buff_queue * __restrict destination,
 		                    &source->base,
 		                    stroll_slist_first(&source->base),
 		                    stroll_slist_last(&source->base));
-
-		destination->cnt += source->cnt;
-		destination->busy += source->busy;
-
+		destination->cnt += cnt;
+		destination->busy += busy;
 		source->cnt = 0;
 		source->busy = 0;
 	}

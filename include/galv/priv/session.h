@@ -78,23 +78,32 @@ struct galv_sess_head {
  * Session message
  ******************************************************************************/
 
-struct galv_sess_msg {
-	size_t                   size;
-	enum galv_sess_head_type type;
-	unsigned int             xchg;
-	struct galv_frag_list    frags;
-	struct stroll_slist_node queue;
+#define GALV_SESS_SGMT_SIZE_MAX \
+	((1U << GALV_SESS_HEAD_SIZE_BITS) - 1)
+
+enum galv_sess_sgmt_state {
+	GALV_SESS_SGMT_PARTIAL_STAT,
+	GALV_SESS_SGMT_COMPLETE_STAT,
+	GALV_SESS_SGMT_STAT_NR
 };
 
-#define galv_sess_assert_msg_api(_msg) \
-	galv_assert_api(_msg); \
-	galv_assert_api((_msg)->type >= 0); \
-	galv_assert_api((_msg)->type <= GALV_SESS_HEAD_TYPE_NR); \
-	galv_assert_api((_msg)->xchg < GALV_SESS_MSG_XCHG_NR)
+finish me!!
+struct galv_sess_send_state {
+	enum galv_sess_sgmt_state state;
+	uint8_t *                 head;
+	struct galv_buff *        buff;
+	struct stroll_slist       buffq;
+};
 
-/******************************************************************************
- * Session connection
- ******************************************************************************/
+#define galv_sess_assert_send_state_api(_state) \
+	galv_assert_api(_state); \
+	galv_assert_api((_sgmt)->size <= GALV_SESS_SGMT_SIZE_MAX); \
+	galv_assert_api(!(_sgmt)->size || ((_sgmt)->busy <= (_sgmt)->size)); \
+	galv_assert_api((_sgmt)->multi >= 0); \
+	galv_assert_api((_sgmt)->multi <= GALV_SESS_HEAD_MULTI_NR); \
+	galv_assert_api(!(_sgmt)->size || \
+	                ((_sgmt)->multi != GALV_SESS_HEAD_MULTI_NR))
+
 
 struct galv_sess_sgmt {
 	size_t                    size;
@@ -102,8 +111,6 @@ struct galv_sess_sgmt {
 	enum galv_sess_head_multi multi;
 };
 
-#define GALV_SESS_SGMT_SIZE_MAX \
-	((1U << GALV_SESS_HEAD_SIZE_BITS) - 1)
 
 #define galv_sess_assert_sgmt_api(_sgmt) \
 	galv_assert_api(_sgmt); \
@@ -114,32 +121,51 @@ struct galv_sess_sgmt {
 	galv_assert_api(!(_sgmt)->size || \
 	                ((_sgmt)->multi != GALV_SESS_HEAD_MULTI_NR))
 
-struct galv_sess_msg_queue {
-	struct stroll_slist base;
-	unsigned long       bmap[STROLL_FBMAP_WORD_NR(GALV_SESS_MSG_XCHG_NR)];
+
+
+struct galv_sess_recv_state {
+	enum galv_sess_sgmt_state state;
+	size_t                    busy;
+	enum galv_sess_head_multi multi;
+	struct galv_frag_list     frags;
+	struct stroll_slist_node  queue;
+};
+finish me!!
+
+struct galv_sess_conn;
+
+struct galv_sess_msg {
+	size_t                              size;
+	enum galv_sess_head_type            type;
+	unsigned int                        xchg;
+	union {
+		struct galv_sess_send_state send;
+		struct galv_sess_recv_state recv;
+	};
+	struct galv_sess_conn *             sess;
 };
 
-static inline
-bool
-galv_sess_msg_queue_empty(const struct galv_sess_msg_queue * __restrict queue)
-{
-	galv_assert_api(queue);
-	galv_assert_api(stroll_slist_empty(&queue->base) ^
-	                _stroll_fbmap_test_all(queue->bmap,
-	                                       GALV_SESS_MSG_XCHG_NR));
+#define galv_sess_assert_msg_api(_msg) \
+	galv_assert_api(_msg); \
+	galv_assert_api((_msg)->type >= 0); \
+	galv_assert_api((_msg)->type <= GALV_SESS_HEAD_TYPE_NR); \
+	galv_assert_api((_msg)->xchg < GALV_SESS_MSG_XCHG_NR); \
+	galv_assert_api((_msg)->sess)
 
-	return stroll_slist_empty(&queue->base);
-}
+/******************************************************************************
+ * Session connection
+ ******************************************************************************/
 
 struct galv_sess_conn {
 	struct galv_conn *         conn;
 	unsigned int               msg_cnt;
 	unsigned int               frag_cnt;
 	unsigned int               buff_cnt;
+	unsigned long              xchg_map[STROLL_FBMAP_WORD_NR(GALV_SESS_MSG_XCHG_NR)];
 	struct galv_sess_msg *     recv_msg;
-	struct galv_sess_sgmt      sgmt;
-	struct galv_sess_msg_queue recv_msgq;
+	struct stroll_slist        recv_msgq;
 	struct galv_buff_queue     recv_buffq;
+	struct galv_buff_queue     send_buffq;
 };
 
 #define galv_sess_assert_conn_api(_sess) \
@@ -150,8 +176,10 @@ struct galv_sess_conn {
 	                galv_sess_conn_acceptor(_sess)->frag_per_sess); \
 	galv_assert_api((_sess)->buff_cnt <= \
 	                galv_sess_conn_acceptor(_sess)->buff_per_sess); \
-	galv_assert_api(!(_sess)->recv_msg || \
-	                ({ galv_sess_assert_sgmt_api(&(_sess)->sgmt); true; }))
+	galv_assert_api((stroll_slist_empty(&(_sess)->recv_msgq) || \
+	                 !galv_buff_queue_count(&(_sess)->send_buff)) ^ \
+	                _stroll_fbmap_test_all((_sess)->xchg_map, \
+	                                       GALV_SESS_MSG_XCHG_NR))
 
 static inline
 struct galv_sess_accept *
