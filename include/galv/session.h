@@ -91,7 +91,7 @@ galv_sess_may_pull_msg(const struct galv_sess_conn * __restrict session)
 {
 	galv_sess_assert_conn_api(session);
 
-	return stroll_slist_empty(&session->recv_msgq);
+	return !stroll_slist_empty(&session->recv_msgq);
 }
 
 extern struct galv_sess_msg *

@@ -271,12 +271,12 @@ end
 
 define galv sessmsg print
 set $_galv_sessmsg = (struct galv_sess_msg *)($arg0)
-if $_galv_sessmsg->queue.next != 0
+if $_galv_sessmsg->recv.queue.next != 0
 	set $_galv_sessmsg_off = (unsigned long) \
-                                 (&((struct galv_sess_msg *)0)->queue)
+                                 (&((struct galv_sess_msg *)0)->recv.queue)
 	set $_galv_sessmsg_next = (struct galv_sess_msg *) \
 	                          ((const char *) \
-	                           (($_galv_sessmsg)->queue.next) - \
+	                           (($_galv_sessmsg)->recv.queue.next) - \
 	                           $_galv_sessmsg_off)
 else
 	set $_galv_sessmsg_next = (struct galv_sess_msg *)0x0
@@ -314,8 +314,8 @@ printf "\n%snext: (struct galv_sess_msg *) %p", \
 	$_galv_sessmsg_next
 printf "\n%sfragments: (struct galv_frag_list *) %p:\n", \
 	$_galv_sessmsg_indent, \
-	&($_galv_sessmsg)->frags
-galv frag list &($_galv_sessmsg)->frags $_galv_sessmsg_frag_indent
+	&($_galv_sessmsg)->recv.frags
+galv frag list &($_galv_sessmsg)->recv.frags $_galv_sessmsg_frag_indent
 end
 
 document galv sessmsg print
@@ -325,7 +325,7 @@ end
 
 define galv sessmsg dump
 set $_galv_sessmsg = (struct galv_sess_msg *)($arg0)
-_galv_frag_dump_list &$_galv_sessmsg->frags
+_galv_frag_dump_list &$_galv_sessmsg->recv.frags
 end
 
 document galv sessmsg dump
@@ -335,7 +335,8 @@ Usage: galv sessmsg dump MESSAGE
 end
 
 define galv sessmsg entry
-set $_galv_sessmsg_off = (unsigned long)(&((struct galv_sess_msg *)0)->queue)
+set $_galv_sessmsg_off = (unsigned long) \
+                         (&((struct galv_sess_msg *)0)->recv.queue)
 set $_galv_sessmsg = (struct galv_sess_msg *)((const char *)($arg0) - \
                                               $_galv_sessmsg_off)
 if $argc == 2
@@ -353,7 +354,7 @@ Usage: galv sessmsg entry NODE
 end
 
 define galv sessmsg queue
-set $_galv_sessmsg_node = ((struct galv_sess_msg_queue *)($arg0))->base.head.next
+set $_galv_sessmsg_node = ((struct stroll_slist_node *)($arg0))->head.next
 set $_galv_sessmsg_idx = 0
 while $_galv_sessmsg_node
 	printf "[%10u] ", $_galv_sessmsg_idx
@@ -365,7 +366,7 @@ end
 end
 
 document galv sessmsg queue
-Display all galv_sess_msg session messages linked within the galv_sess_msg_queue
-pointed to by QUEUE.
+Display all galv_sess_msg messages linked within the stroll_slist
+session message queue pointed to by QUEUE.
 Usage: galv sessmsg queue QUEUE
 end
