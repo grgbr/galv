@@ -116,17 +116,17 @@ galv_sess_push_msg(struct galv_sess_msg * __restrict message)
 
 /* Allocate a fresh empty request message. */
 extern struct galv_sess_msg *
-galv_sess_alloc_request(struct galv_sess_conn * __restrict session)
+galv_sess_create_request(struct galv_sess_conn * __restrict session)
 	__export_public;
 
 /* Allocate a fresh empty reply message. */
 extern struct galv_sess_msg *
-galv_sess_alloc_reply(struct galv_sess_msg * __restrict request)
+galv_sess_create_reply(struct galv_sess_msg * __restrict request)
 	__export_public;
 
 /* Allocate a fresh empty notification message. */
 extern struct galv_sess_msg *
-galv_sess_alloc_notif(struct galv_sess_conn * __restrict session)
+galv_sess_create_notif(struct galv_sess_conn * __restrict session)
 	__export_public;
 
 /* Release a message. */

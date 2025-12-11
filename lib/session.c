@@ -1759,7 +1759,7 @@ galv_sess_close_accept(struct galv_sess_accept * __restrict acceptor,
 /******************************************************************************/
 
 struct galv_sess_msg *
-galv_sess_alloc_request(struct galv_sess_conn * __restrict session)
+galv_sess_create_request(struct galv_sess_conn * __restrict session)
 {
 	galv_sess_assert_conn_api(session);
 
@@ -1767,7 +1767,7 @@ galv_sess_alloc_request(struct galv_sess_conn * __restrict session)
 }
 
 struct galv_sess_msg *
-galv_sess_alloc_reply(struct galv_sess_msg * __restrict request)
+galv_sess_create_reply(struct galv_sess_msg * __restrict request)
 {
 	galv_sess_assert_msg_api(request);
 
@@ -1775,7 +1775,7 @@ galv_sess_alloc_reply(struct galv_sess_msg * __restrict request)
 }
 
 struct galv_sess_msg *
-galv_sess_alloc_notif(struct galv_sess_conn * __restrict session)
+galv_sess_create_notif(struct galv_sess_conn * __restrict session)
 {
 	galv_sess_assert_conn_api(session);
 
