@@ -61,6 +61,15 @@ galv_sess_msg_xchg(const struct galv_sess_msg * __restrict message)
 	return message->xchg;
 }
 
+static inline
+struct galv_sess_conn *
+galv_sess_msg_conn(const struct galv_sess_msg * __restrict message)
+{
+	galv_sess_assert_msg_api(message);
+
+	return message->sess;
+}
+
 /* Retrieve a pointer to user data from a message. */
 extern ssize_t
 galv_sess_msg_pull_head(struct galv_sess_msg * __restrict message,
@@ -85,6 +94,7 @@ struct galv_sess_ops {
 	galv_sess_xfer_fn * xfer;
 };
 
+/* Receive use case. */
 static inline
 bool
 galv_sess_may_pull_msg(const struct galv_sess_conn * __restrict session)
@@ -94,18 +104,29 @@ galv_sess_may_pull_msg(const struct galv_sess_conn * __restrict session)
 	return !stroll_slist_empty(&session->recv_msgq);
 }
 
+/* Receive use case. */
 extern struct galv_sess_msg *
 galv_sess_pull_msg(struct galv_sess_conn * __restrict session)
-	__export_public;
-
-/* Allocate a fresh empty message. */
-extern struct galv_sess_msg *
-galv_sess_alloc_msg(struct galv_sess_conn * __restrict session)
 	__export_public;
 
 /* Emit use case. */
 extern void
 galv_sess_push_msg(struct galv_sess_msg * __restrict message)
+	__export_public;
+
+/* Allocate a fresh empty request message. */
+extern struct galv_sess_msg *
+galv_sess_alloc_request(struct galv_sess_conn * __restrict session)
+	__export_public;
+
+/* Allocate a fresh empty reply message. */
+extern struct galv_sess_msg *
+galv_sess_alloc_reply(struct galv_sess_msg * __restrict request)
+	__export_public;
+
+/* Allocate a fresh empty notification message. */
+extern struct galv_sess_msg *
+galv_sess_alloc_notif(struct galv_sess_conn * __restrict session)
 	__export_public;
 
 /* Release a message. */
@@ -117,10 +138,13 @@ galv_sess_drop_msg(struct galv_sess_msg * __restrict message)
  * Session acceptor
  ******************************************************************************/
 
+#warning implement msg_size/conn_size support for sess_accept...
 struct galv_sess_accept_conf {
 	unsigned int backlog;
+	size_t       conn_size;
 	int          conn_flags;
 	size_t       max_pload;
+	size_t       msg_size;
 	size_t       buff_capa;
 };
 

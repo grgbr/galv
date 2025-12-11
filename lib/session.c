@@ -1754,6 +1754,33 @@ galv_sess_close_accept(struct galv_sess_accept * __restrict acceptor,
 /******************************************************************************/
 /******************************************************************************/
 /******************************************************************************/
+/******************************************************************************/
+/******************************************************************************/
+/******************************************************************************/
+
+struct galv_sess_msg *
+galv_sess_alloc_request(struct galv_sess_conn * __restrict session)
+{
+	galv_sess_assert_conn_api(session);
+
+	return NULL;
+}
+
+struct galv_sess_msg *
+galv_sess_alloc_reply(struct galv_sess_msg * __restrict request)
+{
+	galv_sess_assert_msg_api(request);
+
+	return NULL;
+}
+
+struct galv_sess_msg *
+galv_sess_alloc_notif(struct galv_sess_conn * __restrict session)
+{
+	galv_sess_assert_conn_api(session);
+
+	return NULL;
+}
 
 #define galv_sess_assert_send_msg_intern(_msg) \
 	galv_sess_assert_msg_intern(_msg); \
