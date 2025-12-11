@@ -354,7 +354,7 @@ Usage: galv sessmsg entry NODE
 end
 
 define galv sessmsg queue
-set $_galv_sessmsg_node = ((struct stroll_slist_node *)($arg0))->head.next
+set $_galv_sessmsg_node = ((struct stroll_slist *)($arg0))->head.next
 set $_galv_sessmsg_idx = 0
 while $_galv_sessmsg_node
 	printf "[%10u] ", $_galv_sessmsg_idx

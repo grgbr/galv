@@ -124,26 +124,24 @@ struct galv_sess_msg {
 	galv_assert_api(_msg); \
 	galv_assert_api((_msg)->type >= 0); \
 	galv_assert_api((_msg)->type <= GALV_SESS_HEAD_TYPE_NR); \
-	galv_assert_api((_msg)->xchg < GALV_SESS_MSG_XCHG_NR); \
+	galv_assert_api((_msg)->state >= 0); \
+	galv_assert_api((_msg)->state <= GALV_SESS_SGMT_STAT_NR); \
+	galv_assert_api(((_msg)->state == GALV_SESS_SGMT_STAT_NR) || \
+	                ((_msg)->xchg < GALV_SESS_MSG_XCHG_NR)); \
 	galv_assert_api((_msg)->sess); \
 	galv_assert_api((_msg)->fini)
 
 #define galv_sess_assert_send_msg_api(_msg) \
 	galv_sess_assert_msg_api(_msg); \
-	galv_assert_api((_msg)->state >= 0); \
-	galv_assert_api((_msg)->state <= GALV_SESS_SGMT_STAT_NR); \
 	galv_assert_api(((_msg)->state == GALV_SESS_SGMT_STAT_NR) || \
 	                ((_msg)->send.head && (_msg)->send.buff))
 
 #define galv_sess_assert_recv_msg_api(_msg) \
 	galv_sess_assert_msg_api(_msg); \
-	galv_assert_api((_msg)->state >= 0); \
-	galv_assert_api((_msg)->state <= GALV_SESS_SGMT_STAT_NR); \
-	galv_assert_api((_msg)->recv.multi >= 0); \
-	galv_assert_api((_msg)->recv.multi <= GALV_SESS_HEAD_MULTI_NR); \
 	galv_assert_api(((_msg)->state == GALV_SESS_SGMT_STAT_NR) || \
-	                (((_msg)->recv.multi != GALV_SESS_HEAD_MULTI_NR) && \
-	                 (_msg)->size))
+	                ((_msg)->size && \
+	                 ((_msg)->recv.multi >= 0) && \
+	                 ((_msg)->recv.multi < GALV_SESS_HEAD_MULTI_NR)))
 
 /******************************************************************************
  * Session connection
@@ -168,11 +166,7 @@ struct galv_sess_conn {
 	galv_assert_api((_sess)->frag_cnt <= \
 	                galv_sess_conn_acceptor(_sess)->frag_per_sess); \
 	galv_assert_api((_sess)->buff_cnt <= \
-	                galv_sess_conn_acceptor(_sess)->buff_per_sess); \
-	galv_assert_api((stroll_slist_empty(&(_sess)->recv_msgq) || \
-	                 !galv_buff_queue_count(&(_sess)->send_buffq)) ^ \
-	                _stroll_fbmap_test_all((_sess)->xchg_map, \
-	                                       GALV_SESS_MSG_XCHG_NR))
+	                galv_sess_conn_acceptor(_sess)->buff_per_sess)
 
 static inline
 struct galv_sess_accept *

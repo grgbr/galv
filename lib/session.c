@@ -50,11 +50,7 @@
 	galv_assert_intern((_sess)->frag_cnt <= \
 	                   galv_sess_conn_acceptor(_sess)->frag_per_sess); \
 	galv_assert_intern((_sess)->buff_cnt <= \
-	                   galv_sess_conn_acceptor(_sess)->buff_per_sess); \
-	galv_assert_intern((stroll_slist_empty(&(_sess)->recv_msgq) || \
-	                    !galv_buff_queue_count(&(_sess)->send_buffq)) ^ \
-	                   _stroll_fbmap_test_all((_sess)->xchg_map, \
-	                                          GALV_SESS_MSG_XCHG_NR))
+	                   galv_sess_conn_acceptor(_sess)->buff_per_sess)
 
 static
 struct galv_sess_conn *
@@ -350,19 +346,19 @@ galv_sess_msg_head_size(const struct galv_sess_head * __restrict header)
 	galv_assert_intern(_msg); \
 	galv_assert_intern((_msg)->type >= 0); \
 	galv_assert_intern((_msg)->type <= GALV_SESS_HEAD_TYPE_NR); \
-	galv_assert_intern((_msg)->xchg < GALV_SESS_MSG_XCHG_NR); \
+	galv_assert_intern((_msg)->state >= 0); \
+	galv_assert_intern((_msg)->state <= GALV_SESS_SGMT_STAT_NR); \
+	galv_assert_intern(((_msg)->state == GALV_SESS_SGMT_STAT_NR) || \
+	                   ((_msg)->xchg < GALV_SESS_MSG_XCHG_NR)); \
 	galv_assert_intern((_msg)->sess); \
 	galv_assert_intern((_msg)->fini)
 
 #define galv_sess_assert_recv_msg_intern(_msg) \
 	galv_sess_assert_msg_intern(_msg); \
-	galv_assert_intern((_msg)->state >= 0); \
-	galv_assert_intern((_msg)->state <= GALV_SESS_SGMT_STAT_NR); \
-	galv_assert_intern((_msg)->recv.multi >= 0); \
-	galv_assert_intern((_msg)->recv.multi <= GALV_SESS_HEAD_MULTI_NR); \
 	galv_assert_intern(((_msg)->state == GALV_SESS_SGMT_STAT_NR) || \
-	                   (((_msg)->recv.multi != GALV_SESS_HEAD_MULTI_NR) && \
-	                    (_msg)->size))
+	                   ((_msg)->size && \
+	                    ((_msg)->recv.multi >= 0) && \
+	                    ((_msg)->recv.multi < GALV_SESS_HEAD_MULTI_NR)))
 
 static
 size_t
@@ -461,9 +457,8 @@ galv_sess_init_recv_msg(struct galv_sess_msg * __restrict  message,
 	galv_assert_intern(message);
 	galv_sess_assert_conn_intern(session);
 
-	//message->size = 0;
+	message->size = 0;
 	message->type = GALV_SESS_HEAD_TYPE_NR;
-	//message->xchg = 0;
 	message->state = GALV_SESS_SGMT_STAT_NR;
 	galv_frag_init_list(&message->recv.frags);
 	message->sess = session;
@@ -782,11 +777,12 @@ galv_sess_recv_sgmt_head(struct galv_sess_conn * __restrict         session,
 	galv_assert_intern(recvq);
 
 	if (galv_buff_queue_busy(recvq) >= sizeof(struct galv_sess_head)) {
-		struct galv_sess_head    head;
-		enum galv_sess_head_type type;
-		size_t                   sz;
-		const char *             estr;
-		int                      err;
+		struct galv_sess_head     head;
+		enum galv_sess_head_type  type;
+		enum galv_sess_head_multi multi;
+		size_t                    sz;
+		const char *              estr;
+		int                       err;
 
 		galv_sess_copyn_drain_buffq(session,
 		                            recvq,
@@ -798,6 +794,8 @@ galv_sess_recv_sgmt_head(struct galv_sess_conn * __restrict         session,
 			err = EPROTO;
 			goto err;
 		}
+
+		multi = galv_sess_head_multi(&head);
 
 		type = galv_sess_head_type(&head);
 		if (type != message->type) {
@@ -819,15 +817,19 @@ galv_sess_recv_sgmt_head(struct galv_sess_conn * __restrict         session,
 			 * Thanks to CONFIG_GALV_SESS_PLOAD_SIZE_MAX
 			 * restrictions, the above addition cannot overflow.
 			 */
-			estr = "invalid size";
+			estr = "size too large";
 			err = EMSGSIZE;
 			goto err;
 		}
 
-		galv_sess_start_recv_sgmt(message,
-		                          (size_t)sz,
-		                          galv_sess_head_multi(&head));
+		if ((multi == GALV_SESS_HEAD_CONT_MULTI) &&
+		    (sz != GALV_SESS_SGMT_SIZE_MAX)) {
+			estr = "size too small";
+			err = EMSGSIZE;
+			goto err;
+		}
 
+		galv_sess_start_recv_sgmt(message, (size_t)sz, multi);
 		galv_debug("session: receive segment started "
 		           "[id:%u type:%s multi:%s size:%zu]",
 		           message->xchg,
@@ -861,19 +863,18 @@ galv_sess_recv_msg_head(struct galv_sess_conn * __restrict         session,
 	galv_sess_assert_conn_intern(session);
 	galv_sess_assert_accept_intern(acceptor);
 	galv_sess_assert_recv_msg_intern(message);
-	galv_assert_intern(!message->size);
-	galv_assert_intern(message->type == GALV_SESS_HEAD_TYPE_NR);
 	galv_assert_intern(message->state == GALV_SESS_SGMT_STAT_NR);
 	galv_assert_intern(galv_frag_list_empty(&message->recv.frags));
 	galv_assert_intern(recvq);
 	galv_assert_intern(!galv_buff_queue_empty(recvq));
 
 	if (galv_buff_queue_busy(recvq) >= sizeof(struct galv_sess_head)) {
-		struct galv_sess_head    head;
-		enum galv_sess_head_type type;
-		size_t                   sz;
-		const char *             estr;
-		int                      err;
+		struct galv_sess_head     head;
+		enum galv_sess_head_multi multi;
+		enum galv_sess_head_type  type;
+		size_t                    sz;
+		const char *              estr;
+		int                       err;
 
 		galv_sess_copyn_drain_buffq(session,
 		                            recvq,
@@ -886,6 +887,8 @@ galv_sess_recv_msg_head(struct galv_sess_conn * __restrict         session,
 			goto err;
 		}
 
+		multi = galv_sess_head_multi(&head);
+
 		type = galv_sess_head_type(&head);
 		if (type >= GALV_SESS_HEAD_TYPE_NR) {
 			estr = "invalid type";
@@ -896,7 +899,14 @@ galv_sess_recv_msg_head(struct galv_sess_conn * __restrict         session,
 		sz = galv_sess_msg_head_size(&head);
 		galv_assert_intern(sz <= (size_t)(USHRT_MAX + 1));
 		if (sz > acceptor->max_pload) {
-			estr = "invalid size";
+			estr = "size too large";
+			err = EMSGSIZE;
+			goto err;
+		}
+
+		if ((multi == GALV_SESS_HEAD_CONT_MULTI) &&
+		    (sz != GALV_SESS_SGMT_SIZE_MAX)) {
+			estr = "size too small";
 			err = EMSGSIZE;
 			goto err;
 		}
@@ -910,10 +920,7 @@ galv_sess_recv_msg_head(struct galv_sess_conn * __restrict         session,
 
 		message->type = type;
 
-		galv_sess_start_recv_sgmt(message,
-		                          (size_t)sz,
-		                          galv_sess_head_multi(&head));
-
+		galv_sess_start_recv_sgmt(message, (size_t)sz, multi);
 		galv_debug("session: receive message started "
 		           "[id:%u type:%s multi:%s size:%zu]",
 		           message->xchg,
@@ -1338,6 +1345,7 @@ galv_sess_recv(struct galv_sess_conn * __restrict session)
 		return ret;
 	}
 
+#warning restrict to request/notify message type for server side ?? what about client side ?? (see msg/sgmt head parser)
 	ret = galv_sess_recv_msgs(session);
 	switch (ret) {
 	case -EAGAIN:
@@ -1749,11 +1757,8 @@ galv_sess_close_accept(struct galv_sess_accept * __restrict acceptor,
 
 #define galv_sess_assert_send_msg_intern(_msg) \
 	galv_sess_assert_msg_intern(_msg); \
-	galv_assert_intern((_msg)->state >= 0); \
-	galv_assert_intern((_msg)->state <= GALV_SESS_SGMT_STAT_NR); \
 	galv_assert_intern(((_msg)->state == GALV_SESS_SGMT_STAT_NR) || \
 	                   ((_msg)->send.head && (_msg)->send.buff))
-
 
 #if 0
 
