@@ -466,6 +466,29 @@ galv_sess_init_recv_msg(struct galv_sess_msg * __restrict  message,
 }
 
 static
+struct galv_sess_msg *
+galv_sess_alloc_msg(struct galv_sess_conn * __restrict   session,
+                    struct galv_sess_accept * __restrict acceptor)
+{
+	galv_sess_assert_conn_intern(session);
+	galv_sess_assert_accept_intern(acceptor);
+
+	if (session->msg_cnt < GALV_SESS_MSG_XCHG_NR) {
+		struct galv_sess_msg * msg;
+
+		msg = stroll_falloc_alloc(&acceptor->msg_alloc);
+		if (msg) {
+			session->msg_cnt++;
+			return msg;
+		}
+	}
+	else
+		errno = ENOBUFS;
+
+	return NULL;
+}
+
+static
 void
 galv_sess_free_msg(struct galv_sess_conn * __restrict   session,
                    struct galv_sess_accept * __restrict acceptor,
@@ -527,7 +550,6 @@ galv_sess_dqueue_recv_msg(struct galv_sess_conn * __restrict session)
 	                         recv.queue);
 	galv_sess_assert_recv_msg_intern(msg);
 	galv_assert_intern(_stroll_fbmap_test(session->xchg_map, msg->xchg));
-	_stroll_fbmap_clear(session->xchg_map, msg->xchg);
 
 	return msg;
 }
@@ -552,23 +574,106 @@ galv_sess_create_recv_msg(struct galv_sess_conn * __restrict   session,
 	struct galv_sess_msg * msg;
 	int                    err;
 
-	if (session->msg_cnt < GALV_SESS_MSG_XCHG_NR) {
-		msg = stroll_falloc_alloc(&acceptor->msg_alloc);
-		if (msg) {
-			galv_sess_init_recv_msg(msg, session);
-			session->msg_cnt++;
-			galv_debug("session: message created [addr:%p]", msg);
-			return msg;
-		}
-
-		err = errno;
+	msg = galv_sess_alloc_msg(session, acceptor);
+	if (msg) {
+		galv_sess_init_recv_msg(msg, session);
+		galv_debug("session: receive message created [addr:%p]", msg);
+		return msg;
 	}
-	else
-		err = ENOBUFS;
 
-	galv_ratelim_pinfo(err, "session: cannot allocate message", "");
-
+	err = errno;
+	galv_ratelim_pinfo(err, "session: cannot allocate receive message", "");
 	errno = err;
+
+	return NULL;
+}
+
+struct galv_sess_msg *
+galv_sess_create_request(struct galv_sess_conn * __restrict session)
+{
+	galv_sess_assert_conn_intern(session);
+
+#warning implement me!
+	return NULL;
+}
+
+static
+void
+galv_sess_fini_send_msg(struct galv_sess_msg * __restrict    message,
+                        struct galv_sess_conn * __restrict   session,
+                        struct galv_sess_accept * __restrict acceptor)
+{
+	galv_sess_assert_msg_intern(message);
+	galv_sess_assert_conn_intern(session);
+	galv_assert_api(!_stroll_fbmap_test(session->xchg_map, message->xchg));
+	galv_sess_assert_accept_intern(acceptor);
+
+#warning implement me!
+}
+
+struct galv_sess_msg *
+galv_sess_create_reply(struct galv_sess_conn * __restrict session,
+                       unsigned int                       xchange)
+{
+	galv_sess_assert_conn_intern(session);
+	galv_assert_intern(xchange < GALV_SESS_MSG_XCHG_NR);
+	galv_assert_api(_stroll_fbmap_test(session->xchg_map, xchange));
+
+	struct galv_sess_accept * accept = galv_sess_conn_acceptor(session);
+	struct galv_sess_msg *    msg;
+
+#warning make xchange no may not be cleared on request destruction....
+	msg = galv_sess_alloc_msg(session, accept);
+	if (msg) {
+		msg->size = 0;
+		msg->type = GALV_SESS_HEAD_REPLY_TYPE;
+		msg->xchg = xchange;
+		msg->state = GALV_SESS_SGMT_STAT_NR;
+		msg->send.buff = NULL;
+		stroll_slist_init(&msg->send.buffq);
+		msg->sess = session;
+		msg->fini = galv_sess_fini_send_msg;
+
+		galv_debug("session: reply message created [addr:%p, id:%u]",
+		           msg,
+		           xchange);
+	}
+
+	return msg;
+}
+
+void
+galv_sess_make_reply(struct galv_sess_msg * __restrict request)
+{
+	galv_sess_assert_recv_msg_api(request);
+
+	struct galv_sess_conn *   sess = request->sess;
+	struct galv_sess_accept * accept = galv_sess_conn_acceptor(sess);
+	unsigned int              xchg = request->xchg;
+
+	galv_assert_api(_stroll_fbmap_test(sess->xchg_map, xchg));
+	galv_sess_fini_recv_msg(request, sess, accept);
+	galv_assert_intern(request->xchg == xchg);
+
+	request->size = 0;
+	request->type = GALV_SESS_HEAD_REPLY_TYPE;
+	request->state = GALV_SESS_SGMT_STAT_NR;
+	request->send.buff = NULL;
+	stroll_slist_init(&request->send.buffq);
+	request->fini = galv_sess_fini_send_msg;
+
+	galv_debug("session: request message recycled as reply"
+	           " [addr:%p, id:%u]",
+	           request,
+	           xchg);
+}
+
+struct galv_sess_msg *
+galv_sess_create_notif(struct galv_sess_conn * __restrict session)
+{
+	galv_sess_assert_conn_api(session);
+
+#warning implement me!
 	return NULL;
 }
 
@@ -586,6 +691,7 @@ galv_sess_destroy_recv_msg(struct galv_sess_conn * __restrict   session,
 	unsigned int xchg __unused = message->xchg;
 
 	galv_sess_fini_recv_msg(message, session, acceptor);
+	_stroll_fbmap_clear(session->xchg_map, message->xchg);
 	galv_sess_free_msg(session, acceptor, message, xchg);
 }
 
@@ -594,14 +700,15 @@ galv_sess_drop_msg(struct galv_sess_msg * __restrict message)
 {
 	galv_sess_assert_msg_api(message);
 
-	struct galv_sess_conn *    sess = message->sess;
-	struct galv_sess_accept *  accept = galv_sess_conn_acceptor(sess);
-	unsigned int               xchg __unused = message->xchg;
+	struct galv_sess_conn *   sess = message->sess;
+	struct galv_sess_accept * accept = galv_sess_conn_acceptor(sess);
+	unsigned int              xchg = message->xchg;
 
 	galv_sess_assert_conn_api(sess);
 	galv_sess_assert_accept_api(accept);
 
 	message->fini(message, sess, accept);
+	_stroll_fbmap_clear(sess->xchg_map, xchg);
 	galv_sess_free_msg(sess, accept, message, xchg);
 }
 
@@ -1757,30 +1864,6 @@ galv_sess_close_accept(struct galv_sess_accept * __restrict acceptor,
 /******************************************************************************/
 /******************************************************************************/
 /******************************************************************************/
-
-struct galv_sess_msg *
-galv_sess_create_request(struct galv_sess_conn * __restrict session)
-{
-	galv_sess_assert_conn_api(session);
-
-	return NULL;
-}
-
-struct galv_sess_msg *
-galv_sess_create_reply(struct galv_sess_msg * __restrict request)
-{
-	galv_sess_assert_msg_api(request);
-
-	return NULL;
-}
-
-struct galv_sess_msg *
-galv_sess_create_notif(struct galv_sess_conn * __restrict session)
-{
-	galv_sess_assert_conn_api(session);
-
-	return NULL;
-}
 
 #define galv_sess_assert_send_msg_intern(_msg) \
 	galv_sess_assert_msg_intern(_msg); \

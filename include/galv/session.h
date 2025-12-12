@@ -121,7 +121,13 @@ galv_sess_create_request(struct galv_sess_conn * __restrict session)
 
 /* Allocate a fresh empty reply message. */
 extern struct galv_sess_msg *
-galv_sess_create_reply(struct galv_sess_msg * __restrict request)
+galv_sess_create_reply(struct galv_sess_conn * __restrict session,
+                       unsigned int                       xchange)
+	__export_public;
+
+/* Allocate a fresh reply message to answer a specific request. */
+extern void
+galv_sess_make_reply(struct galv_sess_msg * __restrict request)
 	__export_public;
 
 /* Allocate a fresh empty notification message. */
