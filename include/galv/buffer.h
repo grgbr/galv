@@ -189,7 +189,7 @@ galv_buff_queue_empty(const struct galv_buff_queue * __restrict queue)
 }
 
 static inline
-size_t
+unsigned int
 galv_buff_queue_count(const struct galv_buff_queue * __restrict queue)
 {
 	galv_buff_assert_queue_api(queue);

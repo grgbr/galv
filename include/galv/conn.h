@@ -203,6 +203,15 @@ galv_conn_on_recv_shut(struct galv_conn * __restrict   connection,
                        const struct upoll * __restrict poller)
 	__export_public;
 
+static inline
+bool
+galv_conn_may_send(const struct galv_conn * __restrict connection)
+{
+	galv_conn_assert_api(connection);
+
+	return !(connection->link & GALV_CONN_SENDSHUT_LINK);
+}
+
 /**
  * @return A non zero number of bytes sent upon success, a negative `errno`
  *         like code otherwise.
@@ -248,6 +257,15 @@ galv_conn_send(struct galv_conn * __restrict connection,
 	galv_assert_api(ret != -EALREADY);
 
 	return ret;
+}
+
+static inline
+bool
+galv_conn_may_recv(const struct galv_conn * __restrict connection)
+{
+	galv_conn_assert_api(connection);
+
+	return !(connection->link & GALV_CONN_RECVSHUT_LINK);
 }
 
 /**

@@ -125,6 +125,7 @@ galv_sess_on_buff_released(struct galv_sess_conn * __restrict  session,
 		break;
 
 	default:
+		break;
 	}
 
 	session->buff_cnt--;
@@ -261,7 +262,7 @@ galv_sess_head_multi(const struct galv_sess_head * __restrict header)
 {
 	galv_assert_intern(header);
 
-	return (header->flags >> GALV_SESS_HEAD_MULTI_FLAG_BIT) &
+	return ((unsigned int)header->flags >> GALV_SESS_HEAD_MULTI_FLAG_BIT) &
 	       GALV_SESS_HEAD_MULTI_FLAG_MASK;
 }
 
@@ -1327,6 +1328,8 @@ static
 int
 galv_sess_recv(struct galv_sess_conn * __restrict session)
 {
+	galv_sess_assert_conn_intern(session);
+
 	int ret;
 
 	ret = galv_sess_recv_buffs(session);
@@ -1399,6 +1402,79 @@ galv_sess_recv(struct galv_sess_conn * __restrict session)
 	galv_sess_assert_msg_intern(_msg); \
 	galv_assert_intern(((_msg)->state == GALV_SESS_SGMT_STAT_NR) || \
 	                   ((_msg)->send.head && (_msg)->send.buff))
+
+static
+int
+galv_sess_send(struct galv_sess_conn * __restrict session)
+{
+	galv_sess_assert_conn_intern(session);
+
+	unsigned int cnt = galv_buff_queue_count(&session->send_buffq);
+	ssize_t      ret = 0;
+
+	while (cnt--) {
+		struct galv_buff * buff;
+		size_t             size;
+
+		buff = galv_buff_queue_first(&session->send_buffq);
+		size = galv_buff_busy(buff);
+		galv_assert_intern(size);
+
+		ret = galv_conn_recv(session->conn,
+		                     galv_buff_data(buff),
+		                     size,
+		                     MSG_NOSIGNAL | ((cnt > 0) ? MSG_MORE : 0));
+		galv_assert_intern(ret);
+		if (ret < 0)
+			break;
+
+		galv_buff_grow_head(buff, (size_t)ret);
+		if ((size_t)ret != size) {
+			ret = -EAGAIN;
+			break;
+		}
+
+		galv_buff_dqueue(&session->send_buffq);
+		galv_sess_release_buff(session, buff);
+	}
+
+	galv_assert_intern(ret <= 0);
+	switch (ret) {
+	case 0:
+		/* All buffers have benn sent out. */
+		break;
+
+	case -ENOBUFS:
+		/*
+		 * Underlying network interface output queue full, i.e,
+		 * transient congestion happende or interface has been
+		 * (administratively ?) stopped.
+		 */
+	case -EAGAIN:
+		/* Underlying socket buffer full, try again later. */
+		galv_conn_watch(session->conn, EPOLLOUT);
+		ret = 0;
+		break;
+
+	case -EPIPE:
+		/* Remote peer consumed all of its data and closed */
+	case -ECONNRESET:
+		/*
+		 * Remote peer (unexpectedly) closed while there were still
+		 * unhandled data in its socket buffer.
+		 */
+	case -EINTR:
+		/* Interrupted by a signal before any data was received */
+	case -ENOMEM:
+		/* No more memory available */
+		break;
+
+	default:
+		galv_assert_intern(0);
+	}
+
+	return (int)ret;
+}
 
 static
 void
@@ -1814,6 +1890,7 @@ galv_sess_push_msg(struct galv_sess_msg * __restrict message)
  * Session connection asynchronous handling
  ******************************************************************************/
 
+#if 1
 static
 int
 galv_sess_process_closing_conn(struct galv_sess_conn * session,
@@ -1828,6 +1905,62 @@ galv_sess_process_closing_conn(struct galv_sess_conn * session,
 	if (galv_sess_may_pull_msg(session))
 		goto apply;
 
+#warning Implement output buffer flushing while closing
+	return galv_conn_close(session->conn, poller);
+
+apply:
+	galv_conn_apply_watch(session->conn, poller);
+
+	return ret;
+}
+#else
+static
+int
+galv_sess_process_closing_conn(struct galv_sess_conn * session,
+                               const struct upoll *    poller)
+{
+	int ret;
+
+	ret = galv_sess_recv_msgs(session);
+	switch (ret) {
+	case -EAGAIN:
+		/* No more data to fill in additional messages. */
+	case -ENOBUFS:
+		/*
+		 * No more free fragments / messages available to process
+		 * messages.
+		 */
+		ret = 0;
+		break;
+
+	case -EPROTO:
+		/* Unexpected segment / message header received. */
+	case -EMSGSIZE:
+		/* Message segment size too large. */
+	case -ENOMEM:
+		/* No more memory available */
+		finish me (if !may send goto close...)
+		return galv_conn_on_recv_shut(session->conn, 0, poller);
+
+		break;
+
+	default:
+		galv_assert_intern(0);
+	}
+
+	ret = galv_sess_conn_acceptor(session)->ops->xfer(session);
+	if (ret)
+		goto apply;
+
+	if (galv_conn_may_send(session->conn)) {
+		ret = galv_sess_send(session);
+		galv_assert_intern(ret <= 0);
+check return value !!
+	}
+
+	if (galv_sess_may_pull_msg(session))
+		goto apply;
+
 #warning Implement output buffer flushing.
 	return galv_conn_close(session->conn, poller);
 
@@ -1836,6 +1969,7 @@ apply:
 
 	return ret;
 }
+#endif
 
 static
 int
@@ -1868,14 +2002,38 @@ galv_sess_process_established_conn(struct galv_sess_conn * session,
 		default:
 			galv_ratelim_pnotice(
 				-ret,
-				"session: unexpected transfer failure",
+				"session: unexpected receive failure",
 				"");
 		}
 	}
 
 	ret = galv_sess_conn_acceptor(session)->ops->xfer(session);
+	if (ret) {
+		galv_pdebug(-ret, "session: transfer handler failed");
+		goto apply;
+	}
 
-#warning Implement output buffer flushing
+	/* Output as many buffers as we can... */
+	ret = galv_sess_send(session);
+	galv_assert_intern(ret <= 0);
+	switch (ret) {
+	case 0:
+		break;
+
+	case -EPIPE:
+	case -ECONNRESET:
+		return galv_conn_on_send_shut(session->conn, events, poller);
+
+	case -EINTR:
+	case -ENOMEM:
+		break;
+
+	default:
+		galv_ratelim_pnotice(
+			-ret,
+			"session: unexpected emit failure",
+			"");
+	}
 
 apply:
 	galv_conn_apply_watch(session->conn, poller);
@@ -1949,9 +2107,13 @@ galv_sess_on_send_shut(struct galv_conn *   connection,
                        uint32_t             events __unused,
                        const struct upoll * poller)
 {
+	struct galv_sess_conn * sess = galv_sess_from_conn(connection);
+
 	galv_debug("session: connection emit end shut down: closing..");
 
-	return galv_conn_close(connection, poller);
+	galv_conn_switch_state(connection, GALV_CONN_CLOSING_STATE);
+
+	return galv_sess_process_closing_conn(sess, poller);
 }
 
 static
