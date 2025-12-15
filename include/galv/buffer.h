@@ -230,7 +230,7 @@ galv_buff_dqueue(struct galv_buff_queue * __restrict queue)
 
 extern void
 galv_buff_join_queue(struct galv_buff_queue * __restrict destination,
-                     struct galv_buff_queue * __restrict source)
+                     struct stroll_slist * __restrict    source)
 	__export_public;
 
 static inline
