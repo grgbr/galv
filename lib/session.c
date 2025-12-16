@@ -439,7 +439,6 @@ galv_sess_fini_recv_msg(struct galv_sess_msg * __restrict    message,
 {
 	galv_sess_assert_msg_intern(message);
 	galv_sess_assert_conn_intern(session);
-	galv_assert_api(!_stroll_fbmap_test(session->xchg_map, message->xchg));
 	galv_sess_assert_accept_intern(acceptor);
 
 	while (!galv_frag_list_empty(&message->recv.frags)) {
@@ -1933,6 +1932,9 @@ galv_sess_process_closing_conn(struct galv_sess_conn * session,
                                uint32_t                events,
                                const struct upoll *    poller)
 {
+	galv_sess_assert_conn_intern(session);
+	galv_assert_intern(poller);
+
 	int ret;
 
 	ret = galv_sess_recv_msgs(session);
@@ -2010,6 +2012,9 @@ galv_sess_process_established_conn(struct galv_sess_conn * session,
                                    uint32_t                events,
                                    const struct upoll *    poller)
 {
+	galv_sess_assert_conn_intern(session);
+	galv_assert_intern(poller);
+
 	int ret;
 
 	if (events & EPOLLOUT)
@@ -2080,6 +2085,9 @@ galv_sess_on_may_xfer(struct galv_conn *   connection,
                       uint32_t             events,
                       const struct upoll * poller)
 {
+	galv_conn_assert_intern(connection);
+	galv_assert_intern(poller);
+
 	struct galv_sess_conn * sess = galv_sess_from_conn(connection);
 
 	switch (galv_conn_state(connection)) {
@@ -2102,8 +2110,12 @@ galv_sess_on_connect(struct galv_conn *   connection,
                      uint32_t             events __unused,
                      const struct upoll * poller)
 {
+	galv_conn_assert_intern(connection);
+	galv_assert_intern(poller);
+
 	struct galv_sess_accept * accept;
 	struct galv_sess_conn *   sess;
+	int                       ret;
 	int                       err;
 
 	accept = galv_sess_from_accept(galv_conn_acceptor(connection));
@@ -2113,25 +2125,39 @@ galv_sess_on_connect(struct galv_conn *   connection,
 
 	galv_sess_open_conn(sess, connection);
 
+	ret = accept->ops->connect(sess);
+	if (ret && (ret != -EINTR))
+		goto close;
+
 	err = galv_conn_poll(connection, poller, EPOLLIN, sess);
 	if (err) {
 		galv_ratelim_pnotice(-err,
 		                     "session: cannot poll connection",
 		                     "");
+		if (!ret)
+			ret = err;
 		goto close;
 	}
 
-	galv_conn_switch_state(connection, GALV_CONN_ESTABLISHED_STATE);
-
 	galv_debug("session: connection established [addr:%p]", sess);
 
-	return 0;
+	return ret;
 
 close:
 	galv_sess_close_conn(sess);
 	galv_sess_free_conn(accept, sess);
 
-	return err;
+	switch (ret) {
+	case -EINTR:  /* Interrupted by a signal */
+	case -ENOMEM: /* No more memory available. */
+	case -ENOSPC: /* Too many epoll file descriptors registered. */
+		return ret;
+
+	default:
+		break;
+	}
+
+	return 0;
 }
 
 static
@@ -2140,6 +2166,9 @@ galv_sess_on_send_shut(struct galv_conn *   connection,
                        uint32_t             events,
                        const struct upoll * poller)
 {
+	galv_conn_assert_intern(connection);
+	galv_assert_intern(poller);
+
 	struct galv_sess_conn * sess = galv_sess_from_conn(connection);
 
 	galv_debug("session: connection emit end shut down: closing..");
@@ -2163,6 +2192,9 @@ galv_sess_on_recv_shut(struct galv_conn *   connection,
                        uint32_t             events __unused,
                        const struct upoll * poller)
 {
+	galv_conn_assert_intern(connection);
+	galv_assert_intern(poller);
+
 	struct galv_sess_conn * sess = galv_sess_from_conn(connection);
 
 	galv_debug("session: connection receive end shut down: flushing..");
@@ -2177,6 +2209,9 @@ int
 galv_sess_halt(struct galv_conn * __restrict   connection,
                const struct upoll * __restrict poller)
 {
+	galv_conn_assert_intern(connection);
+	galv_assert_intern(poller);
+
 	struct galv_sess_conn * sess = galv_sess_from_conn(connection);
 
 	galv_debug("session: connection halt requested: flushing..");
@@ -2189,10 +2224,14 @@ void
 galv_sess_close(struct galv_conn * __restrict   connection,
                 const struct upoll * __restrict poller)
 {
+	galv_conn_assert_intern(connection);
+	galv_assert_intern(poller);
+
 	struct galv_sess_conn *   sess = galv_sess_from_conn(connection);
 	struct galv_sess_accept * accept =
 		galv_sess_from_accept(galv_conn_acceptor(connection));
 
+	accept->ops->close(sess);
 	galv_conn_unpoll(connection, poller);
 	galv_sess_close_conn(sess);
 	galv_sess_free_conn(accept, sess);
@@ -2204,6 +2243,9 @@ galv_sess_on_error(struct galv_conn *   connection __unused,
                    uint32_t             events __unused,
                    const struct upoll * poller __unused)
 {
+	galv_conn_assert_intern(connection);
+	galv_assert_intern(poller);
+
 	galv_notice("session: unexpected connection socket error");
 
 	return 0;

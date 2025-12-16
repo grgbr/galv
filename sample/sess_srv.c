@@ -19,6 +19,16 @@
 
 static
 int
+galvsmpl_sess_connect(struct galv_sess_conn * __restrict session)
+{
+	galv_sess_establish(session);
+	galvsmpl_debug("session established");
+
+	return 0;
+}
+
+static
+int
 galvsmpl_sess_xfer(struct galv_sess_conn * __restrict session)
 {
 	while (galv_sess_may_pull_msg(session)) {
@@ -36,8 +46,17 @@ galvsmpl_sess_xfer(struct galv_sess_conn * __restrict session)
 	return 0;
 }
 
+static
+void
+galvsmpl_sess_close(struct galv_sess_conn * __restrict session __unused)
+{
+	galvsmpl_debug("session closed");
+}
+
 static const struct galv_sess_ops galvsmpl_sess_ops = {
-	.xfer = galvsmpl_sess_xfer
+	.connect = galvsmpl_sess_connect,
+	.xfer    = galvsmpl_sess_xfer,
+	.close   = galvsmpl_sess_close
 };
 
 static

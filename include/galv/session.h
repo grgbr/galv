@@ -84,14 +84,25 @@ galv_sess_msg_push_tail(struct galv_sess_msg * __restrict message,
                         size_t                            size)
 	__export_public;
 
+/* Release a message. */
+extern void
+galv_sess_drop_msg(struct galv_sess_msg * __restrict message)
+	__export_public;
+
 /******************************************************************************
  * Session connection
  ******************************************************************************/
 
+typedef int galv_sess_connect_fn(struct galv_sess_conn * __restrict);
+
 typedef int galv_sess_xfer_fn(struct galv_sess_conn * __restrict);
 
+typedef void galv_sess_close_fn(struct galv_sess_conn * __restrict);
+
 struct galv_sess_ops {
-	galv_sess_xfer_fn * xfer;
+	galv_sess_connect_fn * connect;
+	galv_sess_xfer_fn *    xfer;
+	galv_sess_close_fn *   close;
 };
 
 /* Receive use case. */
@@ -135,10 +146,14 @@ extern struct galv_sess_msg *
 galv_sess_create_notif(struct galv_sess_conn * __restrict session)
 	__export_public;
 
-/* Release a message. */
-extern void
-galv_sess_drop_msg(struct galv_sess_msg * __restrict message)
-	__export_public;
+static inline
+void
+galv_sess_establish(struct galv_sess_conn * __restrict session)
+{
+	galv_sess_assert_conn_api(session);
+
+	galv_conn_switch_state(session->conn, GALV_CONN_ESTABLISHED_STATE);
+}
 
 /******************************************************************************
  * Session acceptor

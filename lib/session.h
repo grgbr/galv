@@ -25,10 +25,14 @@
 
 #define galv_sess_assert_ops_api(_ops) \
 	galv_assert_api(_ops); \
-	galv_assert_api((_ops)->xfer)
+	galv_assert_api((_ops)->connect); \
+	galv_assert_api((_ops)->xfer); \
+	galv_assert_api((_ops)->close)
 
 #define galv_sess_assert_ops_intern(_ops) \
 	galv_assert_intern(_ops); \
-	galv_assert_intern((_ops)->xfer)
+	galv_assert_intern((_ops)->connect); \
+	galv_assert_intern((_ops)->xfer); \
+	galv_assert_intern((_ops)->close)
 
 #endif /*  _GALV_LIB_SESSION_H */
