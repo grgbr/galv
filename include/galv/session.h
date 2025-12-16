@@ -110,7 +110,7 @@ galv_sess_pull_msg(struct galv_sess_conn * __restrict session)
 	__export_public;
 
 /* Emit use case. */
-extern void
+extern int
 galv_sess_push_msg(struct galv_sess_msg * __restrict message)
 	__export_public;
 
@@ -126,7 +126,7 @@ galv_sess_create_reply(struct galv_sess_conn * __restrict session,
 	__export_public;
 
 /* Allocate a fresh reply message to answer a specific request. */
-extern void
+extern int
 galv_sess_make_reply(struct galv_sess_msg * __restrict request)
 	__export_public;
 

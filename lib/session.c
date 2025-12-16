@@ -1782,19 +1782,27 @@ galv_sess_create_request(struct galv_sess_conn * __restrict session)
 {
 	galv_sess_assert_conn_api(session);
 
-	struct galv_sess_msg * msg;
-	int                    xchg = _stroll_fbmap_ffc(session->xchg_map,
-	                                                GALV_SESS_MSG_XCHG_NR);
+	if (galv_conn_may_send(session->conn)) {
+		struct galv_sess_msg * msg;
+		int                    xchg;
 
-	msg = galv_sess_create_send_msg(session,
-	                                GALV_SESS_HEAD_REQUEST_TYPE,
-	                                xchg);
-	if (msg)
-		galv_debug("session: request message created [addr:%p id:%u]",
-		           msg,
-		           msg->xchg);
+		xchg = _stroll_fbmap_ffc(session->xchg_map,
+		                         GALV_SESS_MSG_XCHG_NR);
+		msg = galv_sess_create_send_msg(session,
+		                                GALV_SESS_HEAD_REQUEST_TYPE,
+		                                xchg);
+		if (msg)
+			galv_debug("session: request message created "
+			           "[addr:%p id:%u]",
+			           msg,
+			           msg->xchg);
 
-	return msg;
+		return msg;
+	}
+
+	errno = EPIPE;
+
+	return NULL;
 }
 
 struct galv_sess_msg *
@@ -1804,54 +1812,67 @@ galv_sess_create_reply(struct galv_sess_conn * __restrict session,
 	galv_sess_assert_conn_api(session);
 	galv_assert_api(xchange < (int)GALV_SESS_MSG_XCHG_NR);
 
-	if (!_stroll_fbmap_test(session->xchg_map, xchange)) {
-		struct galv_sess_msg * msg;
-		
-		msg = galv_sess_create_send_msg(session,
-		                                GALV_SESS_HEAD_REPLY_TYPE,
-		                                (int)xchange);
-		if (msg)
-			galv_debug("session: reply message created "
-			           "[addr:%p id:%u]",
-			           msg,
-			           msg->xchg);
+	if (galv_conn_may_send(session->conn)) {
+		if (!_stroll_fbmap_test(session->xchg_map, xchange)) {
+			struct galv_sess_msg * msg;
 
-		return msg;
+			msg = galv_sess_create_send_msg(
+				session,
+				GALV_SESS_HEAD_REPLY_TYPE,
+				(int)xchange);
+			if (msg)
+				galv_debug("session: reply message created "
+				           "[addr:%p id:%u]",
+				           msg,
+				           msg->xchg);
+
+			return msg;
+		}
+
+		errno = EBUSY;
 	}
-
-	errno = EBUSY;
+	else
+		errno = EPIPE;
 
 	return NULL;
 }
 
-void
+int
 galv_sess_make_reply(struct galv_sess_msg * __restrict request)
 {
 	galv_sess_assert_recv_msg_api(request);
 
-	struct galv_sess_conn *   sess = request->sess;
-	struct galv_sess_accept * accept = galv_sess_conn_acceptor(sess);
-	unsigned int              xchg = request->xchg;
+	struct galv_sess_conn * sess = request->sess;
 
-	galv_assert_api(_stroll_fbmap_test(sess->xchg_map, xchg));
-	galv_sess_fini_recv_msg(request, sess, accept);
-	galv_assert_intern(request->xchg == xchg);
+	if (galv_conn_may_send(sess->conn)) {
+		unsigned int xchg = request->xchg;
 
-	/*
-	 * Reuse original request message exchange ID and initialize message for
-	 * (sending) reply purpose.
-	 */
-	request->size = 0;
-	request->type = GALV_SESS_HEAD_REPLY_TYPE;
-	request->state = GALV_SESS_SGMT_STAT_NR;
-	request->send.buff = NULL;
-	stroll_slist_init(&request->send.buffq);
-	request->fini = galv_sess_fini_send_msg;
+		galv_assert_api(_stroll_fbmap_test(sess->xchg_map, xchg));
+		galv_sess_fini_recv_msg(request,
+		                        sess,
+		                        galv_sess_conn_acceptor(sess));
+		galv_assert_intern(request->xchg == xchg);
 
-	galv_debug("session: request message recycled as reply "
-	           "[addr:%p id:%u]",
-	           request,
-	           xchg);
+		/*
+		 * Reuse original request message exchange ID and initialize
+		 * message for (sending) reply purpose.
+		 */
+		request->size = 0;
+		request->type = GALV_SESS_HEAD_REPLY_TYPE;
+		request->state = GALV_SESS_SGMT_STAT_NR;
+		request->send.buff = NULL;
+		stroll_slist_init(&request->send.buffq);
+		request->fini = galv_sess_fini_send_msg;
+
+		galv_debug("session: request message recycled as reply "
+		           "[addr:%p id:%u]",
+		           request,
+		           xchg);
+
+		return 0;
+	}
+
+	return -EPIPE;
 }
 
 struct galv_sess_msg *
@@ -1859,64 +1880,57 @@ galv_sess_create_notif(struct galv_sess_conn * __restrict session)
 {
 	galv_sess_assert_conn_api(session);
 
-	struct galv_sess_msg * msg;
-	int                    xchg = _stroll_fbmap_ffc(session->xchg_map,
-	                                                GALV_SESS_MSG_XCHG_NR);
+	if (galv_conn_may_send(session->conn)) {
+		struct galv_sess_msg * msg;
+		int                    xchg;
 
-	msg = galv_sess_create_send_msg(session,
-	                                GALV_SESS_HEAD_NOTIF_TYPE,
-	                                xchg);
-	if (msg)
-		galv_debug("session: notification message created "
-		           "[addr:%p id:%u]",
-		           msg,
-		           msg->xchg);
+		xchg = _stroll_fbmap_ffc(session->xchg_map,
+		                         GALV_SESS_MSG_XCHG_NR);
+		msg = galv_sess_create_send_msg(session,
+		                                GALV_SESS_HEAD_NOTIF_TYPE,
+		                                xchg);
+		if (msg)
+			galv_debug("session: notification message created "
+			           "[addr:%p id:%u]",
+			           msg,
+			           msg->xchg);
 
-	return msg;
+		return msg;
+	}
+
+	errno = EPIPE;
+
+	return NULL;
 }
 
-void
+int
 galv_sess_push_msg(struct galv_sess_msg * __restrict message)
 {
-	struct galv_sess_conn *   sess = message->sess;
-	struct galv_sess_accept * accept = galv_sess_conn_acceptor(sess);
+	galv_sess_assert_msg_api(message);
 
-	galv_sess_complete_send_msg(message);
-	galv_buff_join_queue(&sess->send_buffq, &message->send.buffq);
-	galv_sess_destroy_send_msg(sess, accept, message);
+	struct galv_sess_conn * sess = message->sess;
+
+	if (galv_conn_may_send(sess->conn)) {
+
+		galv_sess_complete_send_msg(message);
+		galv_buff_join_queue(&sess->send_buffq, &message->send.buffq);
+		galv_sess_destroy_send_msg(sess,
+		                           galv_sess_conn_acceptor(sess),
+		                           message);
+		return 0;
+	}
+	else
+		return -EPIPE;
 }
 
 /******************************************************************************
  * Session connection asynchronous handling
  ******************************************************************************/
 
-#if 1
 static
 int
 galv_sess_process_closing_conn(struct galv_sess_conn * session,
-                               const struct upoll *    poller)
-{
-	int ret;
-
-	ret = galv_sess_conn_acceptor(session)->ops->xfer(session);
-	if (ret)
-		goto apply;
-
-	if (galv_sess_may_pull_msg(session))
-		goto apply;
-
-#warning Implement output buffer flushing while closing
-	return galv_conn_close(session->conn, poller);
-
-apply:
-	galv_conn_apply_watch(session->conn, poller);
-
-	return ret;
-}
-#else
-static
-int
-galv_sess_process_closing_conn(struct galv_sess_conn * session,
+                               uint32_t                events,
                                const struct upoll *    poller)
 {
 	int ret;
@@ -1937,12 +1951,11 @@ galv_sess_process_closing_conn(struct galv_sess_conn * session,
 		/* Unexpected segment / message header received. */
 	case -EMSGSIZE:
 		/* Message segment size too large. */
+		goto close;
+
 	case -ENOMEM:
 		/* No more memory available */
-		finish me (if !may send goto close...)
-		return galv_conn_on_recv_shut(session->conn, 0, poller);
-
-		break;
+		goto apply;
 
 	default:
 		galv_assert_intern(0);
@@ -1955,21 +1968,41 @@ galv_sess_process_closing_conn(struct galv_sess_conn * session,
 	if (galv_conn_may_send(session->conn)) {
 		ret = galv_sess_send(session);
 		galv_assert_intern(ret <= 0);
-check return value !!
+		switch (ret) {
+		case 0:
+			break;
+
+		case -EPIPE:
+		case -ECONNRESET:
+			return galv_conn_on_send_shut(session->conn,
+			                              events,
+			                              poller);
+
+		case -EINTR:
+		case -ENOMEM:
+			goto apply;
+
+		default:
+			galv_ratelim_pnotice(
+				-ret,
+				"session: unexpected emit failure",
+				"");
+		}
 	}
 
-	if (galv_sess_may_pull_msg(session))
-		goto apply;
-
-#warning Implement output buffer flushing.
-	return galv_conn_close(session->conn, poller);
+	if (stroll_slist_empty(&session->recv_msgq) &&
+	    galv_buff_queue_empty(&session->recv_buffq) &&
+	    galv_buff_queue_empty(&session->send_buffq))
+		goto close;
 
 apply:
 	galv_conn_apply_watch(session->conn, poller);
 
 	return ret;
+
+close:
+	return galv_conn_close(session->conn, poller);
 }
-#endif
 
 static
 int
@@ -2054,7 +2087,7 @@ galv_sess_on_may_xfer(struct galv_conn *   connection,
 		return galv_sess_process_established_conn(sess, events, poller);
 
 	case GALV_CONN_CLOSING_STATE:
-		return galv_sess_process_closing_conn(sess, poller);
+		return galv_sess_process_closing_conn(sess, events, poller);
 
 	default:
 		galv_assert_intern(0);
@@ -2104,7 +2137,7 @@ close:
 static
 int
 galv_sess_on_send_shut(struct galv_conn *   connection,
-                       uint32_t             events __unused,
+                       uint32_t             events,
                        const struct upoll * poller)
 {
 	struct galv_sess_conn * sess = galv_sess_from_conn(connection);
@@ -2113,7 +2146,15 @@ galv_sess_on_send_shut(struct galv_conn *   connection,
 
 	galv_conn_switch_state(connection, GALV_CONN_CLOSING_STATE);
 
-	return galv_sess_process_closing_conn(sess, poller);
+	/*
+	 * We can send no more additional data: just release all buffers already
+	 * queued for output.
+	 */
+	while (galv_buff_queue_count(&sess->send_buffq))
+		galv_sess_release_buff(sess,
+		                       galv_buff_dqueue(&sess->send_buffq));
+
+	return galv_sess_process_closing_conn(sess, events, poller);
 }
 
 static
@@ -2128,7 +2169,7 @@ galv_sess_on_recv_shut(struct galv_conn *   connection,
 
 	galv_conn_switch_state(connection, GALV_CONN_CLOSING_STATE);
 
-	return galv_sess_process_closing_conn(sess, poller);
+	return galv_sess_process_closing_conn(sess, events, poller);
 }
 
 static
@@ -2140,7 +2181,7 @@ galv_sess_halt(struct galv_conn * __restrict   connection,
 
 	galv_debug("session: connection halt requested: flushing..");
 
-	return galv_sess_process_closing_conn(sess, poller);
+	return galv_sess_process_closing_conn(sess, 0, poller);
 }
 
 static
