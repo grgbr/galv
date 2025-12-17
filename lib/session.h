@@ -20,8 +20,10 @@
 	galv_assert_api((_conf)->max_pload <= GALV_SESS_PLOAD_SIZE_MAX); \
 	galv_assert_api(stroll_aligned((_conf)->max_pload, \
 	                               __WORDSIZE / CHAR_BIT)); \
+	galv_assert_api((_conf)->msg_size >= sizeof(struct galv_sess_msg)); \
 	galv_assert_api((_conf)->buff_capa >= GALV_SESS_BUFF_CAPA_MIN); \
-	galv_assert_api((_conf)->buff_capa <= GALV_SESS_BUFF_CAPA_MAX)
+	galv_assert_api((_conf)->buff_capa <= GALV_SESS_BUFF_CAPA_MAX); \
+	galv_assert_api((_conf)->conn_size >= sizeof(struct galv_sess_conn))
 
 #define galv_sess_assert_ops_api(_ops) \
 	galv_assert_api(_ops); \

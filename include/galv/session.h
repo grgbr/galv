@@ -159,14 +159,13 @@ galv_sess_establish(struct galv_sess_conn * __restrict session)
  * Session acceptor
  ******************************************************************************/
 
-#warning implement msg_size/conn_size support for sess_accept...
 struct galv_sess_accept_conf {
 	unsigned int backlog;
-	size_t       conn_size;
 	int          conn_flags;
 	size_t       max_pload;
 	size_t       msg_size;
 	size_t       buff_capa;
+	size_t       conn_size;
 };
 
 /*
@@ -186,7 +185,12 @@ struct galv_sess_accept_conf {
 #define GALV_SESS_BUFF_CAPA_MAX \
 	STROLL_CONCAT(CONFIG_GALV_SESS_BUFF_CAPA_MAX, U)
 
-#define GALV_SESS_ACCEPT_CONF(_backlog, _conn_flags, _max_pload, _buff_capa) \
+#define GALV_SESS_ACCEPT_CONF(_backlog, \
+                              _conn_flags, \
+                              _max_pload, \
+                              _msg_size, \
+                              _buff_capa, \
+                              _conn_size) \
 	{ \
 		.backlog    = compile_eval( \
 			(_backlog) <= (unsigned int)INT_MAX, \
@@ -201,11 +205,19 @@ struct galv_sess_accept_conf {
 			((_max_pload) <= GALV_SESS_PLOAD_SIZE_MAX), \
 			stroll_align_upper(_max_pload, __WORDSIZE / CHAR_BIT), \
 			"invalid maximum session payload size"), \
+		.msg_size   = compile_eval( \
+			((_msg_size) >= sizeof(struct galv_sess_msg)), \
+			_msg_size, \
+			"invalid session message size"), \
 		.buff_capa  = compile_eval( \
 			((_buff_capa) >= GALV_SESS_BUFF_CAPA_MIN) && \
 			((_buff_capa) <= GALV_SESS_BUFF_CAPA_MAX), \
 			stroll_align_upper(_buff_capa, __WORDSIZE / CHAR_BIT), \
-			"invalid session buffer capacity") \
+			"invalid session buffer capacity"), \
+		.conn_size  = compile_eval( \
+			((_conn_size) >= sizeof(struct galv_sess_conn)), \
+			_conn_size, \
+			"invalid session connection size") \
 	}
 
 extern int
@@ -220,7 +232,9 @@ galv_sess_config_accept(
 	unsigned int                              backlog,
 	int                                       conn_flags,
 	size_t                                    max_pload,
-	size_t                                    buff_capa)
+	size_t                                    msg_size,
+	size_t                                    buff_capa,
+	size_t                                    conn_size)
 	__export_public;
 
 struct galv_sess_accept;

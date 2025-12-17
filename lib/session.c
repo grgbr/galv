@@ -2325,22 +2325,28 @@ galv_sess_config_accept(
 	unsigned int                              backlog,
 	int                                       conn_flags,
 	size_t                                    max_pload,
-	size_t                                    buff_capa)
+	size_t                                    msg_size,
+	size_t                                    buff_capa,
+	size_t                                    conn_size)
 {
 	galv_assert_api(config);
 	galv_assert_api(backlog <= INT_MAX);
 	galv_assert_api(!(conn_flags & ETUX_SOCK_ACCEPT_INVALID_FLAGS));
 	galv_assert_api(max_pload);
 	galv_assert_api(max_pload <= GALV_SESS_PLOAD_SIZE_MAX);
+	galv_assert_api(msg_size >= sizeof(struct galv_sess_msg));
 	galv_assert_api(buff_capa >= GALV_SESS_BUFF_CAPA_MIN);
 	galv_assert_api(buff_capa <= GALV_SESS_BUFF_CAPA_MAX);
+	galv_assert_api(conn_size >= sizeof(struct galv_sess_conn));
 
 	config->backlog = backlog;
 	config->conn_flags = conn_flags;
 	config->max_pload = stroll_align_upper(max_pload,
 	                                       __WORDSIZE / CHAR_BIT);
+	config->msg_size = msg_size;
 	config->buff_capa = stroll_align_upper(buff_capa,
 	                                       __WORDSIZE / CHAR_BIT);
+	config->conn_size = conn_size;
 }
 
 int
@@ -2403,7 +2409,7 @@ galv_sess_open_accept(
 
 	stroll_falloc_init_block_size(&acceptor->msg_alloc,
 	                             (unsigned int)max_msg,
-	                             sizeof(struct galv_sess_msg),
+	                             config->msg_size,
 	                             stroll_page_size());
 	stroll_falloc_init_block_size(&acceptor->frag_alloc,
 	                             (unsigned int)max_frag,
@@ -2416,7 +2422,7 @@ galv_sess_open_accept(
 		acceptor->buff_per_sess);
 	stroll_falloc_init_block_size(&acceptor->sess_alloc,
 	                              (unsigned int)conn_nr,
-	                              sizeof(struct galv_sess_conn),
+	                              config->conn_size,
 	                              stroll_page_size());
 
 	return 0;

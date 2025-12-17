@@ -119,7 +119,9 @@ static const struct galv_sess_accept_conf
 galvsmpl_sess_conf = GALV_SESS_ACCEPT_CONF(GALVSMPL_SESS_BACKLOG,
 	                                   SOCK_CLOEXEC,
 	                                   GALVSMPL_SESS_PLOAD_MAX,
-	                                   GALVSMPL_SESS_BUFF_CAPA_MAX);
+	                                   sizeof(struct galv_sess_msg),
+	                                   GALVSMPL_SESS_BUFF_CAPA_MAX,
+	                                   sizeof(struct galv_sess_conn));
 
 int
 main(void)
