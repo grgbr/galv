@@ -11,7 +11,6 @@
 #include <galv/cdefs.h>
 #include <utils/poll.h>
 
-struct galv_accept_ops;
 struct galv_conn_repo;
 struct galv_adopt;
 struct galv_conn;
@@ -24,7 +23,6 @@ enum galv_accept_state {
 
 struct galv_accept {
 	struct upoll_worker            work;
-	const struct galv_accept_ops * ops;
 	struct galv_repo *             repo;
 	struct galv_adopt *            adopt;
 	const struct galv_conn_ops *   conn_ops;

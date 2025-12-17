@@ -75,15 +75,24 @@ galv_accept_on_conn_request(struct galv_accept * __restrict acceptor,
 	galv_assert_intern(poller);
 
 	struct galv_conn * conn;
+	int                err;
 
-	conn = acceptor->ops->on_conn_request(acceptor, events, poller);
-	if (conn) {
+	conn = galv_adopt_create_conn(acceptor->adopt,
+	                              acceptor->conn_ops,
+	                              acceptor->conn_flags,
+	                              acceptor);
+	if (!conn)
+		return -errno;
+
+	err = galv_conn_on_connect(conn, events, poller);
+	if (!err) {
 		galv_conn_repo_register(acceptor->repo, conn);
 		return 0;
 	}
 
-	galv_assert_api(errno);
-	return -errno;
+	galv_adopt_destroy_conn(acceptor->adopt, conn);
+
+	return err;
 }
 
 int
@@ -98,8 +107,7 @@ galv_accept_on_conn_term(struct galv_accept * __restrict acceptor,
 	int ret;
 
 	galv_conn_repo_unregister(acceptor->repo, connection);
-
-	ret = acceptor->ops->on_conn_term(acceptor, connection, poller);
+	ret = galv_adopt_destroy_conn(acceptor->adopt, connection);
 
 	upoll_enable_watch(&acceptor->work, EPOLLIN);
 	if (acceptor->state == GALV_ACCEPT_RUNNING_STATE)
@@ -176,60 +184,6 @@ galv_accept_dispatch(struct upoll_worker * worker,
 	unreachable();
 }
 
-static
-struct galv_conn *
-galv_accept_handle_conn_request_event(struct galv_accept * __restrict acceptor,
-                                      uint32_t                        events,
-                                      const struct upoll * __restrict poller)
-{
-	galv_accept_assert_intern(acceptor);
-	galv_assert_intern(acceptor->state == GALV_ACCEPT_RUNNING_STATE);
-	galv_assert_intern(events & (uint32_t)EPOLLIN);
-	galv_assert_intern(!(events & ~((uint32_t)(EPOLLIN | EPOLLERR))));
-	galv_assert_intern(poller);
-
-	struct galv_conn * conn;
-	int                err;
-
-	conn = galv_adopt_create_conn(acceptor->adopt,
-	                              acceptor->conn_ops,
-	                              acceptor->conn_flags,
-	                              acceptor);
-	if (!conn)
-		return NULL;
-
-	err = galv_conn_on_connect(conn, events, poller);
-	if (err)
-		goto destroy;
-
-	return conn;
-
-destroy:
-	galv_adopt_destroy_conn(acceptor->adopt, conn);
-
-	errno = -err;
-	return NULL;
-}
-
-static
-int
-galv_accept_handle_conn_term_event(
-	struct galv_accept * __restrict acceptor,
-	struct galv_conn * __restrict   connection,
-	const struct upoll * __restrict poller __unused)
-{
-	galv_accept_assert_intern(acceptor);
-	galv_conn_assert_intern(connection);
-	galv_assert_intern(poller);
-
-	return galv_adopt_destroy_conn(acceptor->adopt, connection);
-}
-
-static const struct galv_accept_ops galv_accept_event_ops = {
-	.on_conn_request = galv_accept_handle_conn_request_event,
-	.on_conn_term    = galv_accept_handle_conn_term_event
-};
-
 int
 galv_accept_open(struct galv_accept * __restrict         acceptor,
                  struct galv_repo * __restrict           repository,
@@ -255,7 +209,6 @@ galv_accept_open(struct galv_accept * __restrict         acceptor,
 		return err;
 
 	acceptor->work.dispatch = galv_accept_dispatch;
-	acceptor->ops = &galv_accept_event_ops;
 	acceptor->repo = repository;
 	acceptor->adopt = adopter;
 	acceptor->conn_ops = operations;

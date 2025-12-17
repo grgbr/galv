@@ -13,35 +13,9 @@
 #include "adopt.h"
 #include "conn.h"
 
-typedef struct galv_conn *
-        galv_accept_on_conn_request_fn(struct galv_accept * __restrict,
-                                       uint32_t,
-                                       const struct upoll * __restrict);
-
-typedef int
-        galv_accept_on_conn_term_fn(struct galv_accept * __restrict,
-                                    struct galv_conn * __restrict,
-                                    const struct upoll * __restrict);
-
-struct galv_accept_ops {
-	galv_accept_on_conn_request_fn * on_conn_request;
-	galv_accept_on_conn_term_fn *    on_conn_term;
-};
-
-#define galv_accept_assert_ops_api(_ops) \
-	galv_assert_api(_ops); \
-	galv_assert_api((_ops)->on_conn_request); \
-	galv_assert_api((_ops)->on_conn_term)
-
-#define galv_accept_assert_ops_intern(_ops) \
-	galv_assert_intern(_ops); \
-	galv_assert_intern((_ops)->on_conn_request); \
-	galv_assert_intern((_ops)->on_conn_term)
-
 #define galv_accept_assert_api(_accept) \
 	galv_assert_api(_accept); \
 	galv_assert_api((_accept)->work.dispatch); \
-	galv_accept_assert_ops_api((_accept)->ops); \
 	galv_repo_assert_api((_accept)->repo); \
 	galv_adopt_assert_api((_accept)->adopt); \
 	galv_conn_assert_ops_api((_accept)->conn_ops); \
@@ -54,7 +28,6 @@ struct galv_accept_ops {
 #define galv_accept_assert_intern(_accept) \
 	galv_assert_intern(_accept); \
 	galv_assert_intern((_accept)->work.dispatch); \
-	galv_accept_assert_ops_intern((_accept)->ops); \
 	galv_repo_assert_intern((_accept)->repo); \
 	galv_adopt_assert_intern((_accept)->adopt); \
 	galv_conn_assert_ops_intern((_accept)->conn_ops); \
