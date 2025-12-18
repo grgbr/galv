@@ -1068,7 +1068,7 @@ _galv_sess_msg_pull_head(struct galv_sess_msg * __restrict message,
                          const uint8_t ** __restrict       data,
                          size_t                            size)
 {
-	galv_sess_assert_msg_intern(message);
+	galv_sess_assert_recv_msg_intern(message);
 	galv_assert_intern(!galv_frag_list_empty(&message->recv.frags));
 	galv_assert_intern(data);
 	galv_assert_intern(size);
@@ -1103,7 +1103,7 @@ galv_sess_msg_pull_head(struct galv_sess_msg * __restrict message,
                         const uint8_t ** __restrict       data,
                         size_t                            size)
 {
-	galv_sess_assert_msg_api(message);
+	galv_sess_assert_recv_msg_api(message);
 	galv_assert_api(data);
 	galv_assert_api(size);
 	galv_assert_api(size <= STROLL_BUFF_CAPACITY_MAX);
@@ -1119,7 +1119,7 @@ galv_sess_msg_read(struct galv_sess_msg * __restrict message,
                    uint8_t * __restrict              buffer,
                    size_t                            size)
 {
-	galv_sess_assert_msg_api(message);
+	galv_sess_assert_recv_msg_api(message);
 	galv_assert_api(buffer);
 	galv_assert_api(size);
 	galv_assert_api(size <= STROLL_BUFF_CAPACITY_MAX);
@@ -1530,8 +1530,10 @@ void
 galv_sess_fill_send_sgmt_head(struct galv_sess_msg * __restrict message,
                               enum galv_sess_head_multi         multi)
 {
-	galv_sess_assert_msg_intern(message);
+	galv_sess_assert_send_msg_intern(message);
 	galv_assert_intern(message->size);
+	galv_assert_intern((message->type == GALV_SESS_HEAD_REPLY_TYPE) ||
+	                   (message->type == GALV_SESS_HEAD_NOTIF_TYPE));
 	galv_assert_intern(message->send.head);
 
 	const struct galv_sess_head head = {
@@ -1551,8 +1553,15 @@ galv_sess_grab_send_sgmt_buff(struct galv_sess_conn * __restrict   session,
                               struct galv_sess_accept * __restrict acceptor,
                               struct galv_sess_msg * __restrict    message)
 {
+	galv_sess_assert_conn_intern(session);
+	galv_sess_assert_accept_intern(acceptor);
+	galv_sess_assert_send_msg_intern(message);
+	galv_assert_intern((message->type == GALV_SESS_HEAD_REPLY_TYPE) ||
+	                   (message->type == GALV_SESS_HEAD_NOTIF_TYPE));
+	galv_assert_intern(message->state != GALV_SESS_SGMT_STAT_NR);
+
 	if (galv_buff_avail_tail(message->send.buff) >
-	    sizeof(*message->send.head))
+	    sizeof(struct galv_sess_head))
 		return message->send.buff;
 
 	stroll_slist_nqueue_back(&message->send.buffq,
@@ -1576,7 +1585,15 @@ galv_sess_fill_send_sgmt(struct galv_sess_msg * __restrict message,
                          size_t                            bytes,
                          size_t                            left)
 {
+	galv_sess_assert_send_msg_intern(message);
+	galv_assert_intern((message->type == GALV_SESS_HEAD_REPLY_TYPE) ||
+	                   (message->type == GALV_SESS_HEAD_NOTIF_TYPE));
+	galv_assert_intern(message->state != GALV_SESS_SGMT_STAT_NR);
+	galv_buff_assert_intern(buffer);
 	galv_assert_intern(galv_buff_avail_tail(buffer));
+	galv_assert_intern(data);
+	galv_assert_intern(bytes);
+	galv_assert_intern(left);
 
 	size_t avail = galv_buff_avail_tail(buffer);
 
@@ -1603,7 +1620,14 @@ galv_sess_process_send_sgmt_init(struct galv_sess_conn * __restrict   session,
                                  uint8_t ** __restrict                data,
                                  size_t                               size)
 {
+	galv_sess_assert_conn_intern(session);
+	galv_sess_assert_accept_intern(acceptor);
+	galv_sess_assert_send_msg_intern(message);
+	galv_assert_intern((message->type == GALV_SESS_HEAD_REPLY_TYPE) ||
+	                   (message->type == GALV_SESS_HEAD_NOTIF_TYPE));
 	galv_assert_intern(message->state == GALV_SESS_SGMT_STAT_NR);
+	galv_assert_intern(data);
+	galv_assert_intern(size);
 
 	struct galv_buff * buff;
 
@@ -1634,7 +1658,14 @@ galv_sess_process_send_sgmt_start(struct galv_sess_conn * __restrict   session,
                                   uint8_t ** __restrict                data,
                                   size_t                               size)
 {
+	galv_sess_assert_conn_intern(session);
+	galv_sess_assert_accept_intern(acceptor);
+	galv_sess_assert_send_msg_intern(message);
+	galv_assert_intern((message->type == GALV_SESS_HEAD_REPLY_TYPE) ||
+	                   (message->type == GALV_SESS_HEAD_NOTIF_TYPE));
 	galv_assert_intern(message->state == GALV_SESS_SGMT_COMPLETE_STAT);
+	galv_assert_intern(data);
+	galv_assert_intern(size);
 
 	struct galv_buff * buff;
 
@@ -1667,6 +1698,11 @@ galv_sess_process_send_sgmt_fill(struct galv_sess_conn * __restrict   session,
                                  uint8_t ** __restrict                data,
                                  size_t                               size)
 {
+	galv_sess_assert_conn_intern(session);
+	galv_sess_assert_accept_intern(acceptor);
+	galv_sess_assert_send_msg_intern(message);
+	galv_assert_intern((message->type == GALV_SESS_HEAD_REPLY_TYPE) ||
+	                   (message->type == GALV_SESS_HEAD_NOTIF_TYPE));
 	galv_assert_intern(message->state == GALV_SESS_SGMT_PARTIAL_STAT);
 	galv_assert_intern(galv_sess_sgmt_size(message) <
 	                   GALV_SESS_SGMT_SIZE_MAX);
@@ -1691,7 +1727,9 @@ galv_sess_msg_push_tail(struct galv_sess_msg * __restrict message,
                         uint8_t ** __restrict             data,
                         size_t                            size)
 {
-	galv_sess_assert_msg_api(message);
+	galv_sess_assert_send_msg_api(message);
+	galv_assert_api((message->type == GALV_SESS_HEAD_REPLY_TYPE) ||
+	                (message->type == GALV_SESS_HEAD_NOTIF_TYPE));
 	galv_assert_api(data);
 	galv_assert_api(size);
 
@@ -1729,7 +1767,9 @@ galv_sess_msg_write(struct galv_sess_msg * __restrict message,
                     const uint8_t * __restrict        buffer,
                     size_t                            size)
 {
-	galv_sess_assert_msg_api(message);
+	galv_sess_assert_send_msg_api(message);
+	galv_assert_api((message->type == GALV_SESS_HEAD_REPLY_TYPE) ||
+	                (message->type == GALV_SESS_HEAD_NOTIF_TYPE));
 	galv_assert_api(buffer);
 	galv_assert_api(size);
 	galv_assert_api(size <= STROLL_BUFF_CAPACITY_MAX);
@@ -1757,7 +1797,9 @@ static
 void
 galv_sess_complete_send_msg(struct galv_sess_msg * __restrict message)
 {
-	galv_sess_assert_msg_intern(message);
+	galv_sess_assert_send_msg_intern(message);
+	galv_assert_intern((message->type == GALV_SESS_HEAD_REPLY_TYPE) ||
+	                   (message->type == GALV_SESS_HEAD_NOTIF_TYPE));
 	galv_assert_intern(message->size);
 	galv_assert_intern(message->send.buff);
 	galv_assert_intern(message->send.head);
@@ -1996,7 +2038,9 @@ galv_sess_create_notif(struct galv_sess_conn * __restrict session)
 int
 galv_sess_push_msg(struct galv_sess_msg * __restrict message)
 {
-	galv_sess_assert_msg_api(message);
+	galv_sess_assert_send_msg_api(message);
+	galv_assert_intern((message->type == GALV_SESS_HEAD_REPLY_TYPE) ||
+	                   (message->type == GALV_SESS_HEAD_NOTIF_TYPE));
 
 	struct galv_sess_conn * sess = message->sess;
 
