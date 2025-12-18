@@ -17,6 +17,8 @@
 #define GALVSMPL_SESS_PLOAD_MAX      (32U * 1024U)
 #define GALVSMPL_SESS_BUFF_CAPA_MAX  (4U * 1024U)
 
+static uint8_t galvsmpl_sess_buff[GALVSMPL_SESS_PLOAD_MAX];
+
 static
 int
 galvsmpl_sess_connect(struct galv_sess_conn * __restrict session)
@@ -31,17 +33,57 @@ static
 int
 galvsmpl_sess_xfer(struct galv_sess_conn * __restrict session)
 {
+	struct galv_sess_msg * msg;
+
 	while (galv_sess_may_pull_msg(session)) {
-		struct galv_sess_msg * msg;
+		size_t                 sz;
+		ssize_t                ret;
 
 		msg = galv_sess_pull_msg(session);
-		galvsmpl_info("received session message "
+
+		sz = galv_sess_msg_size(msg);
+		galvsmpl_assert(sz <= (ssize_t)GALVSMPL_SESS_PLOAD_MAX);
+
+		ret = galv_sess_msg_read(msg,
+		                         galvsmpl_sess_buff,
+		                         sizeof(galvsmpl_sess_buff));
+		galvsmpl_assert(ret == (ssize_t)sz);
+
+		galvsmpl_info("processing session message "
 		              "[type:%d xchg:%u size:%zu]",
 		              galv_sess_msg_type(msg),
 		              galv_sess_msg_xchg(msg),
-		              galv_sess_msg_size(msg));
-		galv_sess_drop_msg(msg);
+		              sz);
+
+		ret = (ssize_t)galv_sess_make_reply(msg);
+		if (ret) {
+			galvsmpl_perr(-(int)ret,
+			              "cannot create reply [xchg:%u]",
+			              galv_sess_msg_xchg(msg));
+			goto drop;
+		}
+
+		ret = (ssize_t)galv_sess_msg_write(msg, galvsmpl_sess_buff, sz);
+		if (ret) {
+			galvsmpl_perr(-(int)ret,
+			              "cannot fill reply [xchg:%u]",
+			              galv_sess_msg_xchg(msg));
+			goto drop;
+		}
+
+		ret = galv_sess_push_msg(msg);
+		if (ret) {
+			galvsmpl_perr(-(int)ret,
+			              "cannot send reply [xchg:%u]",
+			              galv_sess_msg_xchg(msg));
+			goto drop;
+		}
 	}
+
+	return 0;
+
+drop:
+	galv_sess_drop_msg(msg);
 
 	return 0;
 }

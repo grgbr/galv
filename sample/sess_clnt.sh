@@ -24,7 +24,7 @@ send_mult()
 	while [ $xchg -lt $nr ]; do
 		send "$xchg" "$sz"
 		xchg=$((xchg + 1))
-	done | nc -U -N ./sock
+	done | nc -U -N ./sock | hexdump -C
 	sync
 }
 

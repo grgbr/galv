@@ -105,7 +105,7 @@ galv_buff_join_queue(struct galv_buff_queue * __restrict destination,
 		stroll_slist_splice(&destination->base,
 		                    stroll_slist_last(&destination->base),
 		                    source,
-		                    stroll_slist_first(source),
+		                    stroll_slist_head(source),
 		                    stroll_slist_last(source));
 		destination->cnt += cnt;
 		destination->busy += busy;

@@ -77,11 +77,23 @@ galv_sess_msg_pull_head(struct galv_sess_msg * __restrict message,
                         size_t                            size)
 	__export_public;
 
+extern ssize_t
+galv_sess_msg_read(struct galv_sess_msg * __restrict message,
+                   uint8_t * __restrict              buffer,
+                   size_t                            size)
+	__export_public;
+
 /* Reserve user data space from a message for later filling up operation. */
 extern ssize_t
 galv_sess_msg_push_tail(struct galv_sess_msg * __restrict message,
                         uint8_t ** __restrict             data,
                         size_t                            size)
+	__export_public;
+
+extern int
+galv_sess_msg_write(struct galv_sess_msg * __restrict message,
+                    const uint8_t * __restrict        buffer,
+                    size_t                            size)
 	__export_public;
 
 /* Release a message. */
