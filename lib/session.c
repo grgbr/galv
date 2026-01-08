@@ -1126,21 +1126,21 @@ galv_sess_msg_read(struct galv_sess_msg * __restrict message,
 
 	size = stroll_min(size, message->size);
 	if (size) {
-		size_t bytes = 0;
+		size_t bytes = size;
 
 		do {
 			size_t          sz;
 			const uint8_t * data;
 
-			sz = _galv_sess_msg_pull_head(message, &data, size);
+			sz = _galv_sess_msg_pull_head(message, &data, bytes);
 			galv_assert_intern(sz > 0);
 
 			memcpy(buffer, data, sz);
 			buffer += sz;
-			bytes += sz;
-		} while (bytes < size);
+			bytes -= sz;
+		} while (bytes);
 
-		return (ssize_t)bytes;
+		return (ssize_t)size;
 	}
 
 	return -ENODATA;
