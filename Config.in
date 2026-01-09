@@ -102,6 +102,13 @@ config GALV_SESS_BUFF_CAPA_MAX
 	help
 	  Size in bytes of the largest session buffer supported.
 
+config GALV_RPC
+	bool "RPC helper"
+	select GALV_SESS
+	default n
+	help
+	  Build Galv library with rpc support.
+
 config GALV_SMPL
 	bool "Sample code"
 	default n

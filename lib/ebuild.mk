@@ -16,7 +16,8 @@ libgalv-objects    := common.o \
                       $(call kconf_enabled,GALV_BUFF,buffer.o) \
                       $(call kconf_enabled,GALV_FRAG,fragment.o) \
                       $(call kconf_enabled,GALV_SESS,session.o) \
-                      $(call kconf_enabled,GALV_UNIX,unix.o)
+                      $(call kconf_enabled,GALV_UNIX,unix.o) \
+                      $(call kconf_enabled,GALV_RPC,rpc.o)
 
 solibs             := libgalv.so
 libgalv.so-objs    := $(addprefix shared/,$(libgalv-objects))

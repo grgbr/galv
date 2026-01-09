@@ -167,6 +167,12 @@ galv_sess_establish(struct galv_sess_conn * __restrict session)
 	galv_conn_switch_state(session->conn, GALV_CONN_ESTABLISHED_STATE);
 }
 
+static inline
+void
+galv_sess_ignore(struct galv_sess_conn * __restrict session __unused)
+{
+}
+
 /******************************************************************************
  * Session acceptor
  ******************************************************************************/

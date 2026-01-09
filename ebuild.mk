@@ -22,6 +22,7 @@ headers         += $(call kconf_enabled,GALV_BUFF,galv/buffer.h)
 headers         += $(call kconf_enabled,GALV_FRAG,galv/priv/fragment.h)
 headers         += $(call kconf_enabled,GALV_SESS,galv/session.h)
 headers         += $(call kconf_enabled,GALV_SESS,galv/priv/session.h)
+headers         += $(call kconf_enabled,GALV_RPC,galv/rpc.h)
 
 subdirs         := lib
 
@@ -45,7 +46,7 @@ Name: libgalv
 Description: Galv library
 Version: $(VERSION)
 Requires: libutils libstroll
-Requires.private: libutils libstroll $(call kconf_enabled,GALV_LOG,libelog)
+Requires.private: libutils libstroll $(call kconf_enabled,GALV_LOG,libelog) $(call kconf_enabled,GALV_RPC,libdpack)
 Cflags: -I$${includedir}
 Libs: -L$${libdir} -Wl,--push-state,--as-needed -lgalv -Wl,--pop-state
 endef
