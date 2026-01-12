@@ -47,8 +47,8 @@ galv_rpc_decoder_read(struct dpack_decoder * __restrict decoder,
 
 static
 int
-galv_rpc_decoder_discard(struct dpack_decoder * __restrict decoder,
-                         size_t                            size)
+galv_rpc_decoder_skip(struct dpack_decoder * __restrict decoder,
+                      size_t                            size)
 {
 	galv_assert_intern(decoder);
 	galv_assert_intern(size);
@@ -79,7 +79,7 @@ galv_rpc_decoder_fini(struct dpack_decoder * __restrict decoder __unused)
 const struct dpack_decoder_ops galv_rpc_decoder_ops = {
 	.left = galv_rpc_decoder_left,
 	.read = galv_rpc_decoder_read,
-	.disc = galv_rpc_decoder_discard,
+	.skip = galv_rpc_decoder_skip,
 	.fini = galv_rpc_decoder_fini
 };
 
@@ -125,10 +125,12 @@ galv_rpc_encoder_write(struct dpack_encoder * __restrict encoder,
 }
 
 static
-void
+int
 galv_rpc_encoder_fini(struct dpack_encoder * __restrict encoder __unused)
 {
 	galv_assert_intern(encoder);
+
+	return 0;
 }
 
 const struct dpack_encoder_ops galv_rpc_encoder_ops = {
@@ -145,7 +147,7 @@ galv_rpc_msg_init_codec(struct galv_rpc_msg * msg)
 	galv_assert_intern(msg);
 
 	dpack_encoder_init(&msg->enc, &galv_rpc_encoder_ops);
-	dpack_decoder_init(&msg->dec, &galv_rpc_decoder_ops);
+	dpack_decoder_init(&msg->dec, &galv_rpc_decoder_ops, DPACK_DECODER_NODISC);
 }
 
 extern __export_public
