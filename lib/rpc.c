@@ -61,7 +61,7 @@ galv_rpc_decoder_skip(struct dpack_decoder * __restrict decoder,
 
 		sz = galv_sess_msg_pull_head(&msg->base, &data, size);
 		if (sz < 0)
-			return sz;
+			return (int)sz;
 
 		size -= (size_t)sz;
 	} while (size);
