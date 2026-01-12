@@ -113,8 +113,10 @@ galv_unix_adopt_destroy_conn(const struct galv_adopt * __restrict adopter,
 	galv_unix_assert_adopt_api((const struct galv_unix_adopt *)adopter);
 	galv_unix_assert_conn_intern((struct galv_unix_conn *)connection);
 
-	struct ucred cred = ((struct galv_unix_conn *)connection)->peer.cred;
 	int          ret;
+#if defined(CONFIG_GALV_DEBUG)
+	struct ucred cred = ((struct galv_unix_conn *)connection)->peer.cred;
+#endif /* defined(CONFIG_GALV_DEBUG) */
 
 	ret = etux_sock_close(connection->fd);
 	stroll_falloc_free(galv_adopt_allocator(adopter), connection);
