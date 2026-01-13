@@ -1,3 +1,9 @@
+Implement
+=========
+
+* galv_sess_close(), galv_sess_halt() galv_sess_ignore() ?
+* specialize rpc client vs service xfer callback
+
 Testing
 =======
 

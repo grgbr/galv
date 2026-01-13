@@ -10,8 +10,44 @@
 #include <dpack/codec.h>
 #include <dpack/scalar.h>
 
-#define dpack_decoder_to_rpc_msg(_dec) containerof(_dec, struct galv_rpc_msg, dec)
-#define dpack_encoder_to_rpc_msg(_enc) containerof(_enc, struct galv_rpc_msg, enc)
+/******************************************************************************
+ * RPC message handling
+ ******************************************************************************/
+
+#define galv_rpc_assert_msg_intern(_msg) \
+	galv_assert_intern(_msg); \
+	galv_sess_assert_msg_api(&(_msg)->base)
+
+#define galv_rpc_assert_recv_msg_api(_msg) \
+	galv_assert_api(_msg); \
+	galv_sess_assert_recv_msg_api(&(_msg)->base)
+
+#define galv_rpc_assert_recv_msg_intern(_msg) \
+	galv_assert_intern(_msg); \
+	galv_sess_assert_recv_msg_api(&(_msg)->base)
+
+#define galv_rpc_assert_send_msg_intern(_msg) \
+	galv_assert_intern(_msg); \
+	galv_sess_assert_send_msg_api(&(_msg)->base)
+
+#define galv_rpc_assert_send_msg_api(_msg) \
+	galv_assert_api(_msg); \
+	galv_sess_assert_send_msg_api(&(_msg)->base)
+
+static inline
+struct galv_rpc_msg *
+galv_rpc_msg_from_dec(const struct dpack_decoder * __restrict decoder)
+{
+	return containerof(decoder, struct galv_rpc_msg, dec);
+
+}
+
+static inline
+struct galv_rpc_msg *
+galv_rpc_msg_from_enc(const struct dpack_encoder * __restrict encoder)
+{
+	return containerof(encoder, struct galv_rpc_msg, enc);
+}
 
 static
 size_t
@@ -19,9 +55,11 @@ galv_rpc_decoder_left(const struct dpack_decoder * __restrict decoder)
 {
 	galv_assert_intern(decoder);
 
-	const struct galv_rpc_msg * msg = dpack_decoder_to_rpc_msg(decoder);
+	const struct galv_rpc_msg * msg = galv_rpc_msg_from_dec(decoder);
 
-	return galv_rpc_msg_size(msg);
+	galv_rpc_assert_recv_msg_intern(msg);
+
+	return galv_rpc_msg_size(galv_rpc_msg_from_dec(decoder));
 }
 
 static
@@ -34,15 +72,19 @@ galv_rpc_decoder_read(struct dpack_decoder * __restrict decoder,
 	galv_assert_intern(data);
 	galv_assert_intern(size);
 
-	ssize_t ret;
-	struct galv_rpc_msg * msg = dpack_decoder_to_rpc_msg(decoder);
+	struct galv_rpc_msg * msg = galv_rpc_msg_from_dec(decoder);
+	ssize_t               ret;
+
+	galv_rpc_assert_recv_msg_intern(msg);
 
 	ret = galv_sess_msg_read(&msg->base, data, size);
-	if (ret < 0)
-		return (int)ret;
+	galv_assert_intern(ret);
+	if ((size_t)ret == size)
+		return 0;
+	else if (ret > 0)
+		return -ENODATA;
 
-	galv_assert_intern((size_t)ret == size);
-	return 0;
+	return (int)ret;
 }
 
 static
@@ -53,7 +95,9 @@ galv_rpc_decoder_skip(struct dpack_decoder * __restrict decoder,
 	galv_assert_intern(decoder);
 	galv_assert_intern(size);
 
-	struct galv_rpc_msg * msg = dpack_decoder_to_rpc_msg(decoder);
+	struct galv_rpc_msg * msg = galv_rpc_msg_from_dec(decoder);
+
+	galv_rpc_assert_recv_msg_intern(msg);
 
 	do {
 		ssize_t         sz;
@@ -76,7 +120,7 @@ galv_rpc_decoder_fini(struct dpack_decoder * __restrict decoder __unused)
 	galv_assert_intern(decoder);
 }
 
-const struct dpack_decoder_ops galv_rpc_decoder_ops = {
+static const struct dpack_decoder_ops galv_rpc_decoder_ops = {
 	.left = galv_rpc_decoder_left,
 	.read = galv_rpc_decoder_read,
 	.skip = galv_rpc_decoder_skip,
@@ -89,13 +133,11 @@ galv_rpc_encoder_left(const struct dpack_encoder * __restrict encoder)
 {
 	galv_assert_intern(encoder);
 
-	struct galv_rpc_msg     * msg;
-	struct galv_sess_accept * acceptor;
+	const struct galv_rpc_msg * msg = galv_rpc_msg_from_enc(encoder);
 
-	msg  = dpack_encoder_to_rpc_msg(encoder);
-	acceptor = galv_sess_conn_acceptor(msg->base.sess);
+	galv_rpc_assert_send_msg_intern(msg);
 
-	return acceptor->max_pload - galv_rpc_msg_size(msg);
+	return galv_sess_msg_capacity(&msg->base) - galv_rpc_msg_size(msg);
 }
 
 static
@@ -104,7 +146,9 @@ galv_rpc_encoder_used(const struct dpack_encoder * __restrict encoder)
 {
 	galv_assert_intern(encoder);
 
-	struct galv_rpc_msg * msg = dpack_encoder_to_rpc_msg(encoder);
+	const struct galv_rpc_msg * msg = galv_rpc_msg_from_enc(encoder);
+
+	galv_rpc_assert_send_msg_intern(msg);
 
 	return galv_rpc_msg_size(msg);
 }
@@ -119,7 +163,9 @@ galv_rpc_encoder_write(struct dpack_encoder * __restrict encoder,
 	galv_assert_intern(data);
 	galv_assert_intern(size);
 
-	struct galv_rpc_msg * msg = dpack_encoder_to_rpc_msg(encoder);
+	struct galv_rpc_msg * msg = galv_rpc_msg_from_enc(encoder);
+
+	galv_rpc_assert_send_msg_intern(msg);
 
 	return galv_sess_msg_write(&msg->base, data, size);
 }
@@ -142,79 +188,90 @@ const struct dpack_encoder_ops galv_rpc_encoder_ops = {
 
 static
 void
-galv_rpc_msg_init_codec(struct galv_rpc_msg * msg)
+galv_rpc_msg_init_codec(struct galv_rpc_msg * __restrict message)
 {
-	galv_assert_intern(msg);
+	galv_assert_intern(message);
 
-	dpack_encoder_init(&msg->enc, &galv_rpc_encoder_ops);
-	dpack_decoder_init(&msg->dec, &galv_rpc_decoder_ops, DPACK_DECODER_NODISC);
+	dpack_encoder_init(&message->enc, &galv_rpc_encoder_ops);
+	dpack_decoder_init(&message->dec,
+	                   &galv_rpc_decoder_ops,
+	                   DPACK_DECODER_NODISC);
 }
 
-extern __export_public
-int
-galv_rpc_push_msg(struct galv_rpc_msg * msg)
-{
-	galv_assert_api(msg);
-
-	dpack_encoder_fini(&msg->enc);
-	dpack_decoder_fini(&msg->dec);
-	return galv_sess_push_msg(&msg->base);
-}
-
-extern __export_public
 void
-galv_rpc_drop_msg(struct galv_rpc_msg * msg)
+galv_rpc_msg_drop(struct galv_rpc_msg * __restrict message)
 {
-	galv_assert_api(msg);
+	galv_rpc_assert_msg_api(message);
 
-	dpack_encoder_fini(&msg->enc);
-	dpack_decoder_fini(&msg->dec);
-	galv_sess_drop_msg(&msg->base);
+	dpack_encoder_fini(&message->enc);
+	dpack_decoder_fini(&message->dec);
+
+	galv_sess_msg_drop(&message->base);
 }
 
+/******************************************************************************
+ * RPC connection handling
+ ******************************************************************************/
 
-extern __export_public
+#define galv_rpc_assert_api(_rpc) \
+	galv_assert_api(_rpc); \
+	galv_sess_assert_conn_api(&(_rpc)->base); \
+	galv_assert_api((_rpc)->meth_nr); \
+	galv_assert_api((_rpc)->meth)
+
 int
-galv_rpc_xfer(struct galv_sess_conn * ctx)
+galv_rpc_xfer(struct galv_sess_conn * __restrict session)
 {
-	galv_assert_api(ctx);
+	galv_sess_assert_conn_api(session);
 
-	struct galv_rpc_conn  *conn = (struct galv_rpc_conn *)ctx;
-	struct galv_rpc_msg   *msg;
-	uint32_t               id;
+	struct galv_rpc_conn * conn = (struct galv_rpc_conn *)session;
+	struct galv_rpc_msg  * msg;
 	int                    ret = 0;
 
-	while(galv_sess_may_pull_msg(ctx)) {
-		msg = (struct galv_rpc_msg *)galv_sess_pull_msg(ctx);
-		galv_assert_intern(msg);
+	while (galv_sess_may_pull_msg(session)) {
+		uint32_t id;
+
+		msg = (struct galv_rpc_msg *)galv_sess_pull_msg(session);
+		galv_sess_assert_recv_msg_api(&msg->base);
 		galv_rpc_msg_init_codec(msg);
 
 		ret = dpack_decode_uint32(&msg->dec, &id);
 		if (ret)
 			goto drop;
 
-		if (galv_rpc_msg_type(msg) == GALV_SESS_HEAD_REPLY_TYPE) {
-			if (msg->id != id) {
-				ret = -EINVAL;
-				goto drop;
-			}
-		} else {
-			msg->id = id;
-		}
+		ret = -EPROTO;
 
-		if ((id >= conn->rpc_nb) || (!conn->rpc[id])) {
-			ret = -EPERM;
+		switch (galv_rpc_msg_type(msg)) {
+		case GALV_SESS_HEAD_REQUEST_TYPE:
+		case GALV_SESS_HEAD_NOTIF_TYPE:
+			msg->id = id;
+			break;
+
+		case GALV_SESS_HEAD_REPLY_TYPE:
+			if (msg->id == id)
+				break;
+			goto drop;
+
+		default:
+			galv_assert_intern(0);
 			goto drop;
 		}
 
-		ret = conn->rpc[id](msg);
+		if ((id >= conn->meth_nr) || (!conn->meth[id])) {
+			ret = -ENOTSUP;
+			goto drop;
+		}
+
+		ret = conn->meth[id](msg);
 		if (ret)
 			goto end;
 	}
+
 	return 0;
 
 drop:
-	galv_rpc_drop_msg(msg);
+	galv_rpc_msg_drop(msg);
+
 end:
 	switch(ret) {
 	case -EINTR:  /* Interrupted by a signal */
@@ -222,68 +279,89 @@ end:
 		return ret;
 
 	default:
-		galv_sess_ignore(ctx);
-		return 0;
+		galv_sess_ignore(session);
 	}
+
+	return 0;
 }
 
-extern __export_public
 struct galv_rpc_msg *
-galv_rpc_create_request(struct galv_rpc_conn * conn, uint32_t id, void * ctx)
+galv_rpc_create_request(struct galv_rpc_conn * __restrict rpc,
+                        uint32_t                          id,
+                        void *                            context)
 {
-	galv_assert_api(conn);
+	galv_rpc_assert_api(rpc);
 
 	struct galv_rpc_msg * msg;
 
-	msg = (struct galv_rpc_msg *)galv_sess_create_request(&conn->base);
-	if (!msg)
-		return NULL;
+	msg = (struct galv_rpc_msg *)galv_sess_create_request(&rpc->base);
+	if (msg) {
+		int err;
 
-	galv_rpc_msg_init_codec(msg);
-	msg->ctx = ctx;
-	msg->id  = id;
-	if (dpack_encode_uint32(&msg->enc, id)) {
-		galv_rpc_drop_msg(msg);
-		return NULL;
+		galv_rpc_msg_init_codec(msg);
+		msg->id  = id;
+		msg->ctx = context;
+
+		err = dpack_encode_uint32(&msg->enc, id);
+		if (!err)
+			return msg;
+
+		galv_rpc_msg_drop(msg);
+
+		errno = -err;
 	}
 
-	return msg;
+	return NULL;
 }
 
-extern __export_public
 struct galv_rpc_msg *
-galv_rpc_create_notif(struct galv_rpc_conn * conn, uint32_t id)
+galv_rpc_create_notif(struct galv_rpc_conn * __restrict rpc, uint32_t id)
 {
-	galv_assert_api(conn);
+	galv_rpc_assert_api(rpc);
 
 	struct galv_rpc_msg * msg;
 
-	msg = (struct galv_rpc_msg *)galv_sess_create_notif(&conn->base);
-	if (!msg)
-		return NULL;
+	msg = (struct galv_rpc_msg *)galv_sess_create_notif(&rpc->base);
+	if (msg) {
+		int err;
 
-	galv_rpc_msg_init_codec(msg);
-	msg->id  = id;
-	if (dpack_encode_uint32(&msg->enc, id)) {
-		galv_rpc_drop_msg(msg);
-		return NULL;
+		galv_rpc_msg_init_codec(msg);
+		msg->id  = id;
+		msg->ctx = NULL;
+
+		err = dpack_encode_uint32(&msg->enc, id);
+		if (!err)
+			return msg;
+
+		galv_rpc_msg_drop(msg);
+
+		errno = -err;
 	}
 
-	return msg;
+	return NULL;
 }
 
-extern __export_public
 int
-galv_rpc_make_reply(struct galv_rpc_msg * msg)
+galv_rpc_make_reply(struct galv_rpc_msg * __restrict message)
 {
-	galv_assert_api(msg);
+	galv_assert_api(message);
 
-	int ret;
+	int err;
 
-	ret = galv_sess_make_reply(&msg->base);
-	if (ret)
-		return ret;
+	err = galv_sess_make_reply(&message->base);
+	if (!err)
+		return dpack_encode_uint32(&message->enc, message->id);
 
-	return dpack_encode_uint32(&msg->enc, msg->id);
+	return err;
 }
 
+int
+galv_rpc_push_msg(struct galv_rpc_msg * __restrict message)
+{
+	galv_rpc_assert_send_msg_api(message);
+
+	dpack_encoder_fini(&message->enc);
+	dpack_decoder_fini(&message->dec);
+
+	return galv_sess_push_msg(&message->base);
+}

@@ -36,6 +36,15 @@ enum galv_sess_head_type {
 
 static inline
 size_t
+galv_sess_msg_capacity(const struct galv_sess_msg * __restrict message)
+{
+	galv_sess_assert_msg_api(message);
+
+	return galv_sess_conn_acceptor(message->sess)->max_pload;
+}
+
+static inline
+size_t
 galv_sess_msg_size(const struct galv_sess_msg * __restrict message)
 {
 	galv_sess_assert_msg_api(message);
@@ -98,7 +107,7 @@ galv_sess_msg_write(struct galv_sess_msg * __restrict message,
 
 /* Release a message. */
 extern void
-galv_sess_drop_msg(struct galv_sess_msg * __restrict message)
+galv_sess_msg_drop(struct galv_sess_msg * __restrict message)
 	__export_public;
 
 /******************************************************************************
@@ -171,6 +180,7 @@ static inline
 void
 galv_sess_ignore(struct galv_sess_conn * __restrict session __unused)
 {
+#warning Implement session ban ?
 }
 
 /******************************************************************************

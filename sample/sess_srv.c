@@ -83,7 +83,7 @@ galvsmpl_sess_xfer(struct galv_sess_conn * __restrict session)
 	return 0;
 
 drop:
-	galv_sess_drop_msg(msg);
+	galv_sess_msg_drop(msg);
 
 	return 0;
 }

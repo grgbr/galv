@@ -603,7 +603,7 @@ galv_sess_destroy_recv_msg(struct galv_sess_conn * __restrict   session,
 }
 
 void
-galv_sess_drop_msg(struct galv_sess_msg * __restrict message)
+galv_sess_msg_drop(struct galv_sess_msg * __restrict message)
 {
 	galv_sess_assert_msg_api(message);
 

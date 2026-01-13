@@ -12,4 +12,3 @@
 #include "galv/rpc.h"
 
 #endif /* _GALV_LIB_RPC_H */
-
