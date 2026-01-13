@@ -219,10 +219,11 @@ galv_rpc_msg_drop(struct galv_rpc_msg * __restrict message)
 	galv_assert_api((_rpc)->meth_nr); \
 	galv_assert_api((_rpc)->meth)
 
+static
 int
-galv_rpc_xfer(struct galv_sess_conn * __restrict session)
+galv_rpc_srv_xfer(struct galv_sess_conn * __restrict session)
 {
-	galv_sess_assert_conn_api(session);
+	galv_assert_intern(session);
 
 	struct galv_rpc_conn * conn = (struct galv_rpc_conn *)session;
 	struct galv_rpc_msg  * msg;
@@ -248,10 +249,6 @@ galv_rpc_xfer(struct galv_sess_conn * __restrict session)
 			break;
 
 		case GALV_SESS_HEAD_REPLY_TYPE:
-			if (msg->id == id)
-				break;
-			goto drop;
-
 		default:
 			galv_assert_intern(0);
 			goto drop;
@@ -284,6 +281,75 @@ end:
 
 	return 0;
 }
+
+#if 0
+static
+int
+galv_rpc_clt_xfer(struct galv_sess_conn * __restrict session)
+{
+	galv_assert_intern(session);
+
+	struct galv_rpc_conn * conn = (struct galv_rpc_conn *)session;
+	struct galv_rpc_msg  * msg;
+	int                    ret = 0;
+
+	while (galv_sess_may_pull_msg(session)) {
+		uint32_t id;
+
+		msg = (struct galv_rpc_msg *)galv_sess_pull_msg(session);
+		galv_sess_assert_recv_msg_api(&msg->base);
+		galv_rpc_msg_init_codec(msg);
+
+		ret = dpack_decode_uint32(&msg->dec, &id);
+		if (ret)
+			goto drop;
+
+		ret = -EPROTO;
+
+		switch (galv_rpc_msg_type(msg)) {
+		case GALV_SESS_HEAD_NOTIF_TYPE:
+			msg->id = id;
+			break;
+
+		case GALV_SESS_HEAD_REPLY_TYPE:
+			if (msg->id == id)
+				break;
+			goto drop;
+
+		case GALV_SESS_HEAD_REQUEST_TYPE:
+		default:
+			galv_assert_intern(0);
+			goto drop;
+		}
+
+		if ((id >= conn->meth_nr) || (!conn->meth[id])) {
+			ret = -ENOTSUP;
+			goto drop;
+		}
+
+		ret = conn->meth[id](msg);
+		if (ret)
+			goto end;
+	}
+
+	return 0;
+
+drop:
+	galv_rpc_msg_drop(msg);
+
+end:
+	switch(ret) {
+	case -EINTR:  /* Interrupted by a signal */
+	case -ENOMEM: /* No more memory available. */
+		return ret;
+
+	default:
+		galv_sess_ignore(session);
+	}
+
+	return 0;
+}
+#endif
 
 struct galv_rpc_msg *
 galv_rpc_create_request(struct galv_rpc_conn * __restrict rpc,
@@ -364,4 +430,92 @@ galv_rpc_push_msg(struct galv_rpc_msg * __restrict message)
 	dpack_decoder_fini(&message->dec);
 
 	return galv_sess_push_msg(&message->base);
+}
+
+/******************************************************************************
+ * RPC acceptor handling
+ ******************************************************************************/
+
+static
+int
+galv_rpc_srv_connect(struct galv_sess_conn * __restrict session)
+{
+	galv_assert_intern(session);
+
+	struct galv_rpc_conn * conn = (struct galv_rpc_conn *)session;
+	struct galv_rpc_accept * acceptor =
+		(struct galv_rpc_accept *)galv_sess_conn_acceptor(session);
+
+	galv_rpc_assert_accept_intern(acceptor);
+
+	ssize_t ret;
+
+STROLL_IGNORE_WARN("-Wcast-qual")
+	ret = acceptor->factory->create(acceptor->factory, conn,
+					(galv_rpc_fn * * *)&conn->meth);
+STROLL_RESTORE_WARN
+	if (ret > 0) {
+		conn->meth_nr = (size_t)ret;
+		galv_sess_establish(session);
+		return 0;
+	}
+
+	galv_assert_api(ret);
+	return ret;
+}
+
+static
+void
+galv_rpc_srv_close(struct galv_sess_conn * __restrict session)
+{
+	galv_assert_intern(session);
+
+	struct galv_rpc_conn * conn = (struct galv_rpc_conn *)session;
+	struct galv_rpc_accept * acceptor =
+		(struct galv_rpc_accept *)galv_sess_conn_acceptor(session);
+
+	galv_rpc_assert_accept_intern(acceptor);
+
+STROLL_IGNORE_WARN("-Wcast-qual")
+	acceptor->factory->destroy(acceptor->factory, conn,
+	                           (galv_rpc_fn * *)conn->meth);
+STROLL_RESTORE_WARN
+	conn->meth    = NULL;
+	conn->meth_nr = 0;
+}
+
+static const struct galv_sess_ops galv_rpc_ops = {
+	.connect = galv_rpc_srv_connect,
+	.xfer    = galv_rpc_srv_xfer,
+	.close   = galv_rpc_srv_close,
+};
+
+int
+galv_rpc_open_accept(struct galv_rpc_accept            * acceptor,
+                     struct galv_repo                  * repository,
+                     struct galv_adopt                 * adopter,
+                     const struct upoll                * poller,
+                     const struct galv_rpc_accept_conf * conf)
+{
+	galv_assert_api(acceptor);
+	galv_assert_api(repository);
+	galv_assert_api(adopter);
+	galv_assert_api(poller);
+	galv_assert_api(conf);
+
+	int ret;
+
+	ret = galv_sess_open_accept(&acceptor->base,
+	                            &galv_rpc_ops,
+	                            repository,
+	                            adopter,
+	                            poller,
+	                            &conf->base);
+	if (ret)
+		return ret;
+
+STROLL_IGNORE_WARN("-Wcast-qual")
+	*(struct galv_rpc_factory **)&acceptor->factory = conf->factory;
+STROLL_RESTORE_WARN
+	return 0;
 }
