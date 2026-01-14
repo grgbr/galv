@@ -2,6 +2,7 @@
 #define _GALV_CDEFS_H
 
 #include <galv/priv/config.h>
+#include <stroll/cdefs.h>
 
 #if defined(CONFIG_GALV_ASSERT_API)
 
