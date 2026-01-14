@@ -62,7 +62,7 @@ STROLL_RESTORE_WARN
 
 static inline
 void *
-glav_rpc_msg_context(const struct galv_rpc_msg * __restrict message)
+galv_rpc_msg_context(const struct galv_rpc_msg * __restrict message)
 {
 	galv_rpc_assert_msg_api(message);
 
