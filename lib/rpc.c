@@ -461,7 +461,7 @@ STROLL_RESTORE_WARN
 	}
 
 	galv_assert_api(ret);
-	return ret;
+	return (int)ret;
 }
 
 static
