@@ -125,73 +125,84 @@ galv_rpc_push_msg(struct galv_rpc_msg * __restrict message)
  * RPC acceptor handling
  ******************************************************************************/
 
-#define galv_rpc_assert_factory_api(_ops) \
-	galv_assert_api(_ops); \
-	galv_assert_api((_ops)->create); \
-	galv_assert_api((_ops)->destroy)
+struct galv_rpc_accept_conf {
+	struct galv_sess_accept_conf base;
+};
 
-#define galv_rpc_assert_factory_intern(_ops) \
-	galv_assert_intern(_ops); \
-	galv_assert_intern((_ops)->create); \
-	galv_assert_intern((_ops)->destroy)
+#define galv_rpc_assert_conf_api(_conf) \
+	galv_assert_api(_conf); \
+	galv_sess_assert_conf_api(&(_conf)->base)
 
-#define galv_rpc_assert_accept_intern(_accept) \
-	galv_assert_intern(_accept); \
-	galv_rpc_assert_factory_intern((_accept)->factory)
+#define GALV_RPC_ACCEPT_CONF(_backlog, \
+                             _conn_flags, \
+                             _max_pload, \
+                             _buff_capa) \
+	{ \
+		.base = GALV_SESS_ACCEPT_CONF(_backlog, \
+		                              _conn_flags, \
+		                              _max_pload, \
+		                              sizeof(struct galv_rpc_msg), \
+		                              _buff_capa, \
+		                              sizeof(struct galv_rpc_conn)) \
+	}
+
+static inline
+int
+galv_rpc_config_accept_backlog(struct galv_rpc_accept_conf * __restrict config,
+                               const char * __restrict                  string)
+{
+	return galv_sess_config_accept_backlog(&config->base, string);
+}
+
+static inline
+void
+galv_rpc_config_accept(struct galv_rpc_accept_conf * __restrict config,
+                       unsigned int                             backlog,
+                       int                                      conn_flags,
+                       size_t                                   max_pload,
+                       size_t                                   buff_capa)
+{
+	galv_sess_config_accept(&config->base,
+	                        backlog,
+	                        conn_flags,
+	                        max_pload,
+	                        sizeof(struct galv_rpc_msg),
+	                        buff_capa,
+	                        sizeof(struct galv_rpc_conn));
+}
 
 struct galv_rpc_factory;
 
-typedef ssize_t galv_rpc_create_fn(struct galv_rpc_factory * factory,
-                                   struct galv_rpc_conn *    rpc,
-                                   galv_rpc_fn * * * meth);
+typedef ssize_t galv_rpc_create_fn(const struct galv_rpc_factory * __restrict,
+                                   const struct galv_rpc_conn * __restrict,
+                                   galv_rpc_fn * const ** __restrict);
 
-typedef void galv_rpc_destroy_fn(struct galv_rpc_factory * factory,
-                                 struct galv_rpc_conn * rpc,
-                                 galv_rpc_fn * * meth);
+typedef void galv_rpc_destroy_fn(const struct galv_rpc_factory * __restrict,
+                                 const struct galv_rpc_conn * __restrict,
+                                 galv_rpc_fn ** __restrict);
 
 struct galv_rpc_factory {
-	galv_rpc_create_fn * create;
+	galv_rpc_create_fn *  create;
 	galv_rpc_destroy_fn * destroy;
 };
 
 struct galv_rpc_accept {
-	struct galv_sess_accept base;
-	struct galv_rpc_factory * factory;
+	struct galv_sess_accept         base;
+	const struct galv_rpc_factory * factory;
 };
-
-struct galv_rpc_accept_conf {
-	struct galv_sess_accept_conf base;
-	struct galv_rpc_factory * factory;
-};
-
-#define GALV_RPC_ACCEPT_CONF(_backlog, _conn_flags, _max_pload, _buff_capa, \
-                            _factory) \
-	{ \
-		.base = GALV_SESS_ACCEPT_CONF(_backlog, _conn_flags, \
-		                              _max_pload, \
-		                              sizeof(struct galv_rpc_msg), \
-		                              _buff_capa, \
-		                              sizeof(struct galv_rpc_conn)), \
-		.factory = _factory \
-	}
 
 extern int
-galv_rpc_open_accept(struct galv_rpc_accept            * acceptor,
-                     struct galv_repo                  * repository,
-                     struct galv_adopt                 * adopter,
-                     const struct upoll                * poller,
-                     const struct galv_rpc_accept_conf * conf)
+galv_rpc_open_accept(struct galv_rpc_accept * __restrict            acceptor,
+                     const struct galv_rpc_factory * __restrict     factory,
+                     struct galv_repo * __restrict                  repository,
+                     struct galv_adopt * __restrict                 adopter,
+                     const struct upoll * __restrict                poller,
+                     const struct galv_rpc_accept_conf * __restrict config)
 	__export_public;
 
-static inline
-void
-galv_rpc_close_accept(struct galv_rpc_accept * acceptor,
-                      const struct upoll    * poller)
-{
-	galv_assert_api(acceptor);
-	galv_assert_api(poller);
-
-	galv_sess_close_accept(&acceptor->base, poller);
-}
+extern void
+galv_rpc_close_accept(struct galv_rpc_accept * __restrict acceptor,
+                      const struct upoll * __restrict     poller)
+	__export_public;
 
 #endif /* _GALV_RPC_H */

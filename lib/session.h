@@ -10,6 +10,7 @@
 
 #include "common.h"
 #include "galv/session.h"
+#include "accept.h"
 
 #define galv_sess_assert_conf_api(_conf) \
 	galv_assert_api(_conf); \
@@ -24,6 +25,28 @@
 	galv_assert_api((_conf)->buff_capa >= GALV_SESS_BUFF_CAPA_MIN); \
 	galv_assert_api((_conf)->buff_capa <= GALV_SESS_BUFF_CAPA_MAX); \
 	galv_assert_api((_conf)->conn_size >= sizeof(struct galv_sess_conn))
+
+#define galv_sess_assert_accept_api(_accept) \
+	galv_assert_api(_accept); \
+	galv_accept_assert_api(&(_accept)->base); \
+	galv_sess_assert_ops_api((_accept)->ops); \
+	galv_assert_api((_accept)->max_pload); \
+	galv_assert_api(stroll_aligned((_accept)->max_pload, \
+	                               __WORDSIZE / CHAR_BIT)); \
+	galv_assert_api((_accept)->max_pload <= GALV_SESS_PLOAD_SIZE_MAX); \
+	galv_assert_api((_accept)->frag_per_sess >= GALV_SESS_MSG_XCHG_NR); \
+	galv_assert_api((_accept)->buff_per_sess >= GALV_SESS_MSG_XCHG_NR)
+
+#define galv_sess_assert_accept_intern(_accept) \
+	galv_assert_intern(_accept); \
+	galv_accept_assert_intern(&(_accept)->base); \
+	galv_sess_assert_ops_intern((_accept)->ops); \
+	galv_assert_intern((_accept)->max_pload); \
+	galv_assert_intern(stroll_aligned((_accept)->max_pload, \
+	                                  __WORDSIZE / CHAR_BIT)); \
+	galv_assert_intern((_accept)->max_pload <= GALV_SESS_PLOAD_SIZE_MAX); \
+	galv_assert_intern((_accept)->frag_per_sess >= GALV_SESS_MSG_XCHG_NR); \
+	galv_assert_intern((_accept)->buff_per_sess >= GALV_SESS_MSG_XCHG_NR)
 
 #define galv_sess_assert_ops_api(_ops) \
 	galv_assert_api(_ops); \
