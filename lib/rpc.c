@@ -38,6 +38,8 @@ static inline
 struct galv_rpc_msg *
 galv_rpc_msg_from_dec(const struct dpack_decoder * __restrict decoder)
 {
+	galv_assert_intern(decoder);
+
 	return containerof(decoder, struct galv_rpc_msg, dec);
 
 }
@@ -46,6 +48,8 @@ static inline
 struct galv_rpc_msg *
 galv_rpc_msg_from_enc(const struct dpack_encoder * __restrict encoder)
 {
+	galv_assert_intern(encoder);
+
 	return containerof(encoder, struct galv_rpc_msg, enc);
 }
 
@@ -114,10 +118,12 @@ galv_rpc_decoder_skip(struct dpack_decoder * __restrict decoder,
 }
 
 static
-void
+int
 galv_rpc_decoder_fini(struct dpack_decoder * __restrict decoder __unused)
 {
 	galv_assert_intern(decoder);
+
+	return 0;
 }
 
 static const struct dpack_decoder_ops galv_rpc_decoder_ops = {
