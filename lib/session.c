@@ -443,6 +443,9 @@ galv_sess_fini_recv_msg(struct galv_sess_msg * __restrict    message,
 
 		galv_sess_destroy_frag(session, acceptor, frag);
 	}
+
+	if (message->state != GALV_SESS_SGMT_STAT_NR)
+		_stroll_fbmap_clear(session->xchg_map, message->xchg);
 }
 
 static
@@ -526,10 +529,9 @@ galv_sess_nqueue_recv_msg(struct galv_sess_conn * __restrict session,
 {
 	galv_sess_assert_conn_intern(session);
 	galv_sess_assert_recv_msg_intern(message);
-	galv_assert_intern(galv_sess_may_nqueue_recv_msg(session, message));
+	galv_assert_intern(!galv_sess_may_nqueue_recv_msg(session, message));
 
 	stroll_slist_nqueue_back(&session->recv_msgq, &message->recv.queue);
-	_stroll_fbmap_set(session->xchg_map, message->xchg);
 }
 
 static
@@ -598,7 +600,6 @@ galv_sess_destroy_recv_msg(struct galv_sess_conn * __restrict   session,
 	unsigned int xchg = message->xchg;
 
 	galv_sess_fini_recv_msg(message, session, acceptor);
-	_stroll_fbmap_clear(session->xchg_map, message->xchg);
 	galv_sess_free_msg(session, acceptor, message, xchg);
 }
 
@@ -615,7 +616,6 @@ galv_sess_msg_drop(struct galv_sess_msg * __restrict message)
 	galv_sess_assert_accept_api(accept);
 
 	message->fini(message, sess, accept);
-	_stroll_fbmap_clear(sess->xchg_map, xchg);
 	galv_sess_free_msg(sess, accept, message, xchg);
 }
 
@@ -734,6 +734,18 @@ galv_sess_open_conn(struct galv_sess_conn * __restrict session,
 
 static
 void
+galv_sess_clear_buffq(struct galv_sess_conn * __restrict  session,
+                      struct galv_buff_queue * __restrict buffq)
+{
+	galv_sess_assert_conn_intern(session);
+	galv_assert_intern(buffq);
+
+	while (galv_buff_queue_count(buffq))
+		galv_sess_release_buff(session, galv_buff_dqueue(buffq));
+}
+
+static
+void
 galv_sess_close_conn(struct galv_sess_conn * __restrict session)
 {
 	galv_sess_assert_conn_api(session);
@@ -746,9 +758,7 @@ galv_sess_close_conn(struct galv_sess_conn * __restrict session)
 	 * as long as it is enqueued since enqueueing does not increment
 	 * internal buffer reference count...)
 	 */
-	while (galv_buff_queue_count(&session->recv_buffq))
-		galv_sess_release_buff(session,
-		                       galv_buff_dqueue(&session->recv_buffq));
+	galv_sess_clear_buffq(session, &session->recv_buffq);
 	galv_buff_fini_queue(&session->recv_buffq);
 
 	if (session->recv_msg)
@@ -758,9 +768,7 @@ galv_sess_close_conn(struct galv_sess_conn * __restrict session)
 		                           accept,
 		                           galv_sess_dqueue_recv_msg(session));
 
-	while (galv_buff_queue_count(&session->send_buffq))
-		galv_sess_release_buff(session,
-		                       galv_buff_dqueue(&session->send_buffq));
+	galv_sess_clear_buffq(session, &session->send_buffq);
 	galv_buff_fini_queue(&session->send_buffq);
 
 	galv_assert_intern(!session->msg_cnt);
@@ -931,6 +939,7 @@ galv_sess_recv_msg_head(struct galv_sess_conn * __restrict         session,
 			err = EPROTO;
 			goto err;
 		}
+		_stroll_fbmap_set(session->xchg_map, message->xchg);
 
 		message->type = type;
 
@@ -945,7 +954,6 @@ galv_sess_recv_msg_head(struct galv_sess_conn * __restrict         session,
 		return 0;
 
 err:
-#warning Implement dropping current message ?
 		galv_ratelim_pinfo(err,
 		                   "session: receive message header rejected",
 		                   " [id:%u]: %s",
@@ -2127,8 +2135,10 @@ galv_sess_process_closing_conn(struct galv_sess_conn * session,
 	}
 
 	if (stroll_slist_empty(&session->recv_msgq) &&
-	    galv_buff_queue_empty(&session->recv_buffq) &&
-	    galv_buff_queue_empty(&session->send_buffq))
+	    (!galv_conn_may_recv(session->conn) ||
+	     galv_buff_queue_empty(&session->recv_buffq)) &&
+	    (!galv_conn_may_send(session->conn) ||
+	     galv_buff_queue_empty(&session->send_buffq)))
 		goto close;
 
 apply:
@@ -2313,9 +2323,7 @@ galv_sess_on_send_shut(struct galv_conn *   connection,
 	 * We can send no more additional data: just release all buffers already
 	 * queued for output.
 	 */
-	while (galv_buff_queue_count(&sess->send_buffq))
-		galv_sess_release_buff(sess,
-		                       galv_buff_dqueue(&sess->send_buffq));
+	galv_sess_clear_buffq(sess, &sess->send_buffq);
 
 	return galv_sess_process_closing_conn(sess, events, poller);
 }
