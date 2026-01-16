@@ -377,19 +377,10 @@ galv_conn_unpoll(const struct galv_conn * __restrict connection,
 	upoll_unregister(poller, connection->fd);
 }
 
-static inline
-int
+extern int
 galv_conn_halt(struct galv_conn * __restrict   connection,
-               const struct upoll * __restrict poller)
-{
-	galv_conn_assert_api(connection);
-	galv_assert_api(connection->state != GALV_CONN_CLOSING_STATE);
-	galv_assert_api(connection->state != GALV_CONN_CLOSED_STATE);
-
-	connection->state = GALV_CONN_CLOSING_STATE;
-
-	return connection->ops->halt(connection, poller);
-}
+                const struct upoll * __restrict poller)
+	__export_public;
 
 /**
  * Close an asynchronous socket.

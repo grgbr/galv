@@ -2083,12 +2083,15 @@ galv_sess_process_closing_conn(struct galv_sess_conn * session,
 	switch (ret) {
 	case -EAGAIN:
 		/* No more data to fill in additional messages. */
+		if (!galv_conn_may_recv(session->conn))
+			galv_sess_clear_buffq(session, &session->recv_buffq);
+		break;
+
 	case -ENOBUFS:
 		/*
 		 * No more free fragments / messages available to process
 		 * messages.
 		 */
-		ret = 0;
 		break;
 
 	case -EPROTO:
@@ -2105,9 +2108,11 @@ galv_sess_process_closing_conn(struct galv_sess_conn * session,
 		galv_assert_intern(0);
 	}
 
-	ret = galv_sess_conn_acceptor(session)->ops->xfer(session);
-	if (ret)
+	ret = galv_sess_conn_acceptor(session)->ops->xfer(session, poller);
+	if (ret) {
+		galv_pdebug(-ret, "session: transfer handler failed");
 		goto apply;
+	}
 
 	if (galv_conn_may_send(session->conn)) {
 		ret = galv_sess_send(session);
@@ -2135,10 +2140,8 @@ galv_sess_process_closing_conn(struct galv_sess_conn * session,
 	}
 
 	if (stroll_slist_empty(&session->recv_msgq) &&
-	    (!galv_conn_may_recv(session->conn) ||
-	     galv_buff_queue_empty(&session->recv_buffq)) &&
-	    (!galv_conn_may_send(session->conn) ||
-	     galv_buff_queue_empty(&session->send_buffq)))
+	    galv_buff_queue_empty(&session->recv_buffq) &&
+	    galv_buff_queue_empty(&session->send_buffq))
 		goto close;
 
 apply:
@@ -2189,7 +2192,7 @@ galv_sess_process_established_conn(struct galv_sess_conn * session,
 		}
 	}
 
-	ret = galv_sess_conn_acceptor(session)->ops->xfer(session);
+	ret = galv_sess_conn_acceptor(session)->ops->xfer(session, poller);
 	if (ret) {
 		galv_pdebug(-ret, "session: transfer handler failed");
 		goto apply;
@@ -2348,7 +2351,7 @@ galv_sess_on_recv_shut(struct galv_conn *   connection,
 
 static
 int
-galv_sess_halt(struct galv_conn * __restrict   connection,
+galv_sess_on_halt(struct galv_conn * __restrict   connection,
                const struct upoll * __restrict poller)
 {
 	galv_conn_assert_intern(connection);
@@ -2363,8 +2366,8 @@ galv_sess_halt(struct galv_conn * __restrict   connection,
 
 static
 void
-galv_sess_close(struct galv_conn * __restrict   connection,
-                const struct upoll * __restrict poller)
+galv_sess_on_close(struct galv_conn * __restrict   connection,
+                   const struct upoll * __restrict poller)
 {
 	galv_conn_assert_intern(connection);
 	galv_assert_intern(poller);
@@ -2398,8 +2401,8 @@ static const struct galv_conn_ops galv_sess_conn_ops = {
 	.on_connect   = galv_sess_on_connect,
 	.on_send_shut = galv_sess_on_send_shut,
 	.on_recv_shut = galv_sess_on_recv_shut,
-	.halt         = galv_sess_halt,
-	.close        = galv_sess_close,
+	.halt         = galv_sess_on_halt,
+	.close        = galv_sess_on_close,
 	.on_error     = galv_sess_on_error
 };
 

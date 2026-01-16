@@ -18,7 +18,7 @@ galv_accept_from_worker(const struct upoll_worker * __restrict worker)
 
 int
 galv_accept_resume(struct galv_accept * __restrict acceptor,
-                    const struct upoll * __restrict poller)
+                   const struct upoll * __restrict poller)
 {
 	galv_accept_assert_api(acceptor);
 	galv_assert_api(poller);

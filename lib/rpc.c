@@ -356,9 +356,11 @@ galv_rpc_svc_connect(struct galv_sess_conn * __restrict session)
 
 static
 int
-galv_rpc_svc_xfer(struct galv_sess_conn * __restrict session)
+galv_rpc_svc_xfer(struct galv_sess_conn * __restrict session,
+                  const struct upoll * __restrict    poller)
 {
 	galv_assert_intern(session);
+	galv_assert_intern(poller);
 
 	struct galv_rpc_conn * conn = (struct galv_rpc_conn *)session;
 	struct galv_rpc_msg  * msg;
@@ -405,16 +407,11 @@ drop:
 	galv_rpc_msg_drop(msg);
 
 end:
-	switch(ret) {
-	case -EINTR:  /* Interrupted by a signal */
-	case -ENOMEM: /* No more memory available. */
-		return ret;
+#warning Implement a ban / close / ignore strategy ??
+	if ((ret != -EINTR) && (ret != -ENOMEM))
+		ret = galv_sess_halt(session, poller);
 
-	default:
-		galv_sess_ignore(session);
-	}
-
-	return 0;
+	return ((ret == -EINTR) || (ret == -ENOMEM)) ? 0 : ret;
 }
 
 #if 0

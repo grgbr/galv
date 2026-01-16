@@ -116,7 +116,8 @@ galv_sess_msg_drop(struct galv_sess_msg * __restrict message)
 
 typedef int galv_sess_connect_fn(struct galv_sess_conn * __restrict);
 
-typedef int galv_sess_xfer_fn(struct galv_sess_conn * __restrict);
+typedef int galv_sess_xfer_fn(struct galv_sess_conn * __restrict,
+                              const struct upoll * __restrict);
 
 typedef void galv_sess_close_fn(struct galv_sess_conn * __restrict);
 
@@ -177,10 +178,25 @@ galv_sess_establish(struct galv_sess_conn * __restrict session)
 }
 
 static inline
-void
-galv_sess_ignore(struct galv_sess_conn * __restrict session __unused)
+int
+galv_sess_halt(struct galv_sess_conn * __restrict session,
+               const struct upoll * __restrict    poller)
 {
-#warning Implement session ban ?
+	galv_sess_assert_conn_api(session);
+	galv_assert_api(poller);
+
+	return galv_conn_halt(session->conn, poller);
+}
+
+static inline
+int
+galv_sess_close(struct galv_sess_conn * __restrict session,
+                const struct upoll * __restrict    poller)
+{
+	galv_sess_assert_conn_api(session);
+	galv_assert_api(poller);
+
+	return galv_conn_close(session->conn, poller);
 }
 
 /******************************************************************************

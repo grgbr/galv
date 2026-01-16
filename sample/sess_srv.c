@@ -31,7 +31,8 @@ galvsmpl_sess_connect(struct galv_sess_conn * __restrict session)
 
 static
 int
-galvsmpl_sess_xfer(struct galv_sess_conn * __restrict session)
+galvsmpl_sess_xfer(struct galv_sess_conn * __restrict session,
+                   const struct upoll * __restrict    poller __unused)
 {
 	struct galv_sess_msg * msg;
 

@@ -186,6 +186,23 @@ galv_conn_poll(struct galv_conn * __restrict   connection,
 }
 
 int
+galv_conn_halt(struct galv_conn * __restrict   connection,
+               const struct upoll * __restrict poller)
+{
+	galv_conn_assert_api(connection);
+	galv_assert_api(connection->fd >= 0);
+	galv_assert_api(connection->state != GALV_CONN_CLOSED_STATE);
+	galv_assert_api(poller);
+
+	if (connection->state != GALV_CONN_CLOSING_STATE) {
+		connection->state = GALV_CONN_CLOSING_STATE;
+		return connection->ops->halt(connection, poller);
+	}
+
+	return 0;
+}
+
+int
 galv_conn_close(struct galv_conn * __restrict   connection,
                 const struct upoll * __restrict poller)
 {
