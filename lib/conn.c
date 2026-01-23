@@ -164,6 +164,49 @@ galv_conn_dispatch(struct upoll_worker * worker,
 }
 
 int
+galv_conn_enable_dispatch(struct galv_conn * __restrict   connection,
+                          const struct upoll * __restrict poller,
+                          uint32_t                        events,
+                          upoll_dispatch_fn *             dispatch,
+                          void * __restrict               context)
+{
+	galv_conn_assert_intern(connection);
+	galv_assert_intern(connection->fd >= 0);
+	galv_assert_intern(poller);
+	galv_assert_intern(events);
+	galv_assert_intern(!(events & ~GALV_CONN_POLL_VALID_EVENTS));
+	galv_assert_intern(dispatch);
+
+	bool init = !connection->work.dispatch;
+
+	if (init) {
+		/* This connection has not been registered for polling yet. */
+		int ret;
+
+		ret = upoll_register(poller,
+		                     connection->fd,
+		                     events,
+		                     &connection->work);
+		galv_assert_intern((ret == -ENOMEM) || (ret == -ENOSPC));
+		if (ret)
+			return ret;
+	}
+	else {
+		/*
+		 * This connection has already been registered: just reset
+		 * polling event mask.
+		 */
+		upoll_setup_watch(&connection->work, events);
+		upoll_apply(poller, connection->fd, &connection->work);
+	}
+
+	connection->work.dispatch = dispatch;
+	connection->ctx = context;
+
+	return 0;
+}
+
+int
 galv_conn_poll(struct galv_conn * __restrict   connection,
                const struct upoll * __restrict poller,
                uint32_t                        events,
@@ -176,13 +219,11 @@ galv_conn_poll(struct galv_conn * __restrict   connection,
 	galv_assert_api(events);
 	galv_assert_api(!(events & ~GALV_CONN_POLL_VALID_EVENTS));
 
-	connection->work.dispatch = galv_conn_dispatch;
-	connection->ctx = context;
-
-	return upoll_register(poller,
-	                      connection->fd,
-	                      events,
-	                      &connection->work);
+	return galv_conn_enable_dispatch(connection,
+	                                 poller,
+	                                 events,
+	                                 galv_conn_dispatch,
+	                                 context);
 }
 
 int

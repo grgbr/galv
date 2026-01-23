@@ -13,8 +13,8 @@
 #include <sys/socket.h>
 
 struct galv_unix_addr {
-	socklen_t          size;
 	struct sockaddr_un data;
+	socklen_t          size;
 };
 
 struct galv_unix_adopt {

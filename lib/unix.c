@@ -11,6 +11,223 @@
 #include <utils/string.h>
 
 /******************************************************************************
+ * Unix client-side connection coupler handling
+ ******************************************************************************/
+
+#define galv_unix_assert_coupler_conf_api(_conf) \
+	galv_assert_api(_conf); \
+	galv_assert_api(((_conf)->sock_type == SOCK_STREAM) || \
+	                ((_conf)->sock_type == SOCK_SEQPACKET)); \
+	galv_assert_api(!((_conf)->sock_flags & \
+	                  ETUX_SOCK_OPEN_INVALID_FLAGS)); \
+	galv_assert_api((_conf)->max_conn)
+
+int
+galv_coupler_config_max_conn(struct galv_coupler_conf * __restrict config,
+                            const char * __restrict              string)
+{
+	galv_assert_api(config);
+	galv_assert_api(string);
+
+	return ustr_parse_uint_range(string, &config->max_conn, 1, UINT_MAX);
+}
+
+void
+galv_unix_coupler_config(struct galv_coupler_conf * __restrict config,
+                        int                                  sock_type,
+                        int                                  sock_flags,
+                        unsigned int                         max_conn)
+{
+	galv_assert_api(config);
+	galv_assert_api((sock_type == SOCK_STREAM) ||
+	                (sock_type == SOCK_SEQPACKET));
+	galv_assert_api(!(sock_flags & ETUX_SOCK_OPEN_INVALID_FLAGS));
+	galv_assert_api(max_conn);
+
+	config->sock_type = sock_type;
+	config->sock_flags = sock_flags;
+	config->max_conn = max_conn;
+}
+
+
+
+static
+int
+galv_unix_coupler_connect(struct galv_conn * __restrict      connection,
+                          const struct sockaddr * __restrict peer,
+                          const struct upoll * __restric     poller)
+{
+	const struct galv_unix_conn * unc = (const struct galv_unix_conn *)
+	                                    connection;
+	const struct galv_unix_addr * addr = (const struct galv_unix_addr *)
+	                                     peer;
+	int                           ret;
+
+	unc->peer.addr = *addr;
+	ret = unsk_connect(connection->fd, &addr->data, addr->size);
+	galv_assert_intern(ret != -EADDRINUSE);
+	galv_assert_intern(ret != -EALREADY);
+	if (!ret) {
+		socklen_t sz = sizeof(unc->peer.cred);
+
+		unsk_getsockopt(connection->fd,
+		                SO_PEERCRED,
+		                &unc->peer.cred,
+		                &sz);
+		galv_assert_intern(sz == sizeof(peer->cred));
+		ret = galv_conn_on_connect(&unc->base,
+		                           EPOLLIN | EPOLLOUT,
+		                           poller);
+#error implement return code checking
+		return ret;
+	}
+
+	switch (ret) {
+	case -EINPROGRESS:
+	case -EAGAIN:
+		/*
+		 * Nonblocking UNIX domain sockets return -EAGAIN (instead of
+		 * -EINPROGRESS when the connection cannot be completed
+		 * immediately.
+		 */
+		break;
+
+	case -EINTR:
+		return -EINTR;
+
+	case -EACCES:
+	case -EPERM:
+	case -EINPROGRESS:
+	case -EPROTOTYPE:
+	case -ETIMEDOUT:
+		msg = "failed to connect";
+		goto err;
+
+	default:
+		galv_assert_intern(0);
+		return ret;
+	}
+
+	connection->state = GALV_CONN_CONNECTING_STATE;
+	connection->work.dispatch = galv_coupler_dispatch;
+	connection->ctx = NULL;
+	ret = upoll_register(poller,
+	                     connection->fd,
+	                     EPOLLOUT,
+	                     &connection->work);
+	if (!ret)
+		return 0;
+
+	msg = "failed to poll";
+FINISH ME
+err:
+	galv_ratelim_pinfo(-ret,
+	                   "unix: cannot establish connection",
+	                   ": %s",
+	                   msg);
+
+	return ret;
+}
+
+static
+struct galv_conn *
+galv_unix_coupler_create_conn(const struct galv_coupler * __restrict  coupler,
+                          const struct galv_conn_ops * __restrict operations,
+                          const struct sockaddr * __restrict      peer,
+                          int                                     flags)
+{
+	galv_unix_assert_coupler_api((const struct galv_unix_coupler *)coupler);
+	galv_conn_assert_ops_intern(operations);
+	galv_unix_assert_addr_api((const struct galv_unix_addr *)peer);
+	galv_assert_intern(!(flags & ETUX_SOCK_OPEN_INVALID_FLAGS));
+
+	int                           sk;
+	int                           ret;
+	const struct galv_unix_conn * unc;
+	const struct galv_unix_addr * addr = (const struct galv_unix_addr *)
+	                                     peer;
+	const char *                  msg;
+
+	sk = unsk_open(coupler->conn_type, SOCK_NONBLOCK | flags);
+	if (sk < 0) {
+		if (sk == -ENOMEM) {
+			errno = -sk;
+			return NULL;
+		}
+
+		ret = -sk;
+		msg = "failed to open";
+		goto err;
+	}
+
+	/* Allocate UNIX connection. */
+	unc = stroll_falloc_alloc(galv_coupler_allocator(coupler));
+	if (!unc) {
+		ret = errno;
+		unsk_close(sk);
+		if (ret == ENOMEM)
+			return NULL;
+
+		msg = "failed to allocate";
+		goto err;
+	}
+
+	galv_conn_setup(&unc->base, sk, operations, coupler);
+
+	galv_debug("unix: client connection created");
+
+	return &unc->base;
+
+err:
+	galv_ratelim_pnotice(err,
+	                     "unix: cannot create client connection",
+	                     ": %s",
+	                     msg);
+	errno = ret;
+
+	return NULL;
+}
+
+static const struct galv_coupler_ops galv_unix_coupler_ops = {
+	.create_conn  = galv_unix_coupler_create_conn,
+	.destroy_conn = galv_unix_coupler_destroy_conn
+};
+
+void
+galv_unix_coupler_open(struct galv_coupler * __restrict            coupler,
+                      struct galv_repo * __restrict              repository,
+                      const struct galv_conn_ops * __restrict    operations,
+                      const struct galv_coupler_conf * __restrict config)
+{
+	galv_assert_api(coupler);
+	galv_repo_assert_api(repository);
+	galv_conn_assert_ops_api(operations);
+	galv_unix_assert_coupler_conf_api(config);
+
+	coupler->ops = &galv_unix_coupler_ops;
+	coupler->repo = repo;
+	stroll_falloc_init_block_size(&coupler->alloc,
+	                              config->max_conn,
+	                              sizeof(struct galv_unix_conn),
+	                              stroll_page_size());
+	coupler->conn_ops = operations;
+	coupler->conn_type = config->sock_type;
+	coupler->conn_flags = config->sock_flags;
+
+	galv_debug("unix: coupler opened");
+}
+
+void
+galv_unix_coupler_close(struct galv_unix_coupler * __restrict coupler)
+{
+	galv_unix_assert_coupler_api(coupler);
+
+	stroll_falloc_fini(&coupler->alloc);
+
+	galv_debug("unix: coupler closed");
+}
+
+/******************************************************************************
  * Unix connection adopter handling
  ******************************************************************************/
 
@@ -77,7 +294,7 @@ galv_unix_adopt_create_conn(const struct galv_adopt * __restrict    adopter,
 	unc = stroll_falloc_alloc(galv_adopt_allocator(adopter));
 	if (!unc) {
 		err = errno;
-		etux_sock_close(fd);
+		unsk_close(fd);
 		if (err == ENOMEM)
 			return NULL;
 
@@ -89,7 +306,7 @@ galv_unix_adopt_create_conn(const struct galv_adopt * __restrict    adopter,
 	galv_conn_setup(&unc->base, fd, operations, acceptor);
 	unc->peer = peer;
 
-	galv_debug("unix: connection created [pid:%d uid:%d]",
+	galv_debug("unix: service connection created [pid:%d uid:%d]",
 	           peer.cred.pid,
 	           peer.cred.uid);
 
@@ -97,7 +314,7 @@ galv_unix_adopt_create_conn(const struct galv_adopt * __restrict    adopter,
 
 err:
 	galv_ratelim_pnotice(err,
-	                     "unix: cannot create connection",
+	                     "unix: cannot create service connection",
 	                     ": %s",
 	                     msg);
 	errno = err;
@@ -118,7 +335,7 @@ galv_unix_adopt_destroy_conn(const struct galv_adopt * __restrict adopter,
 	struct ucred cred = ((struct galv_unix_conn *)connection)->peer.cred;
 #endif /* defined(CONFIG_GALV_DEBUG) */
 
-	ret = etux_sock_close(connection->fd);
+	ret = unsk_close(connection->fd);
 	stroll_falloc_free(galv_adopt_allocator(adopter), connection);
 	if (!ret || (ret == -EINTR)) {
 		galv_debug("unix: connection destroyed [pid:%d uid:%d]",
@@ -267,8 +484,12 @@ galv_unix_adopt_close(struct galv_unix_adopt * __restrict adopter)
 	unlink(adopter->bind_addr.data.sun_path);
 
 	ret = galv_adopt_close(&adopter->base);
-	if (ret && (ret != -EINTR))
-		galv_pnotice(-ret, "unix: cannot close adopter");
+	if (!ret || (ret == -EINTR)) {
+		galv_debug("unix: adopter closed");
+		return 0;
+	}
+
+	galv_pnotice(-ret, "unix: cannot close adopter");
 
 	return ret;
 }

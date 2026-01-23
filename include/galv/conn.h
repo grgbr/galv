@@ -375,6 +375,7 @@ galv_conn_unpoll(const struct galv_conn * __restrict connection,
 	galv_assert_api(poller);
 
 	upoll_unregister(poller, connection->fd);
+	connection->work.dispatch = NULL;
 }
 
 static inline

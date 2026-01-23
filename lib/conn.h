@@ -100,8 +100,16 @@ galv_conn_setup(struct galv_conn * __restrict           connection,
 	connection->ops = operations;
 	connection->state = GALV_CONN_CLOSED_STATE;
 	connection->fd = fd;
+	connection->work.dispatch = NULL;
 	connection->accept = acceptor;
 	connection->link = GALV_CONN_FLOWING_LINK;
 }
+
+extern int
+galv_conn_enable_dispatch(struct galv_conn * __restrict   connection,
+                          const struct upoll * __restrict poller,
+                          uint32_t                        events,
+                          upoll_dispatch_fn *             dispatch,
+                          void * __restrict               context);
 
 #endif /* _GALV_LIB_CONN_H */
