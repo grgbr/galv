@@ -23,7 +23,20 @@
 #include <utils/unsk.h>
 
 /******************************************************************************
- * UNIX socket adopter
+ * UNIX (client-side) connection binder handling
+ ******************************************************************************/
+
+extern void
+galv_unix_binder_open(struct galv_binder * __restrict binder,
+                      unsigned int                    max_conn)
+	__export_public;
+
+extern void
+galv_unix_binder_close(struct galv_binder * __restrict binder)
+	__export_public;
+
+/******************************************************************************
+ * UNIX (service-side) socket adopter handling
  ******************************************************************************/
 
 struct galv_unix_adopt_conf {

@@ -10,6 +10,7 @@ include ../common.mk
 libgalv-objects    := common.o \
                       accept.o \
                       adopt.o \
+                      coupler.o \
                       conn.o \
                       repo.o \
                       $(call kconf_enabled,GALV_GATE,gate.o) \

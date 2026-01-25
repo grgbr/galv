@@ -73,36 +73,20 @@ galv_conn_on_connect(struct galv_conn * __restrict   connection,
 static inline
 int
 galv_conn_on_error(struct galv_conn * __restrict   connection,
+                   int                             error,
                    uint32_t                        events,
                    const struct upoll * __restrict poller)
 {
 	galv_conn_assert_api(connection);
-	galv_assert_api(connection->state != GALV_CONN_CLOSED_STATE);
 	galv_assert_api(!(events & ~GALV_CONN_POLL_VALID_EVENTS));
+	galv_assert_api(error);
 	galv_assert_api(events & EPOLLERR);
 	galv_assert_api(poller);
 
-	return connection->ops->on_error(connection, events, poller);
-}
-
-static inline
-void
-galv_conn_setup(struct galv_conn * __restrict           connection,
-                int                                     fd,
-                const struct galv_conn_ops * __restrict operations,
-                struct galv_accept * __restrict         acceptor)
-{
-	galv_assert_intern(connection);
-	galv_assert_intern(fd >= 0);
-	galv_conn_assert_ops_intern(operations);
-	galv_assert_intern(acceptor);
-
-	connection->ops = operations;
-	connection->state = GALV_CONN_CLOSED_STATE;
-	connection->fd = fd;
-	connection->work.dispatch = NULL;
-	connection->accept = acceptor;
-	connection->link = GALV_CONN_FLOWING_LINK;
+	return connection->ops->on_error(connection,
+	                                 error,
+	                                 events,
+	                                 poller);
 }
 
 extern int
@@ -111,5 +95,11 @@ galv_conn_enable_dispatch(struct galv_conn * __restrict   connection,
                           uint32_t                        events,
                           upoll_dispatch_fn *             dispatch,
                           void * __restrict               context);
+
+extern void
+galv_conn_setup(struct galv_conn * __restrict           connection,
+                int                                     fd,
+                const struct galv_conn_ops * __restrict operations,
+                struct galv_accept * __restrict         acceptor);
 
 #endif /* _GALV_LIB_CONN_H */

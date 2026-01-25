@@ -10,16 +10,21 @@
 
 #include "galv/unix.h"
 #include "conn.h"
+#include "binder.h"
 #include "adopt.h"
 #include "accept.h"
 
 #define galv_unix_assert_addr_api(_addr) \
 	galv_assert_api(_addr); \
-	galv_assert_api((_addr)->size >= sizeof(sa_family_t))
+	galv_assert_api(!(_addr)->size || \
+	                (((_addr)->data.sun_family == AF_UNIX) && \
+	                 ((_addr)->size >= sizeof(sa_family_t))))
 
 #define galv_unix_assert_addr_intern(_addr) \
 	galv_assert_intern(_addr); \
-	galv_assert_intern((_addr)->size >= sizeof(sa_family_t))
+	galv_assert_intern(!(_addr)->size || \
+	                   (((_addr)->data.sun_family == AF_UNIX) && \
+	                    ((_addr)->size >= sizeof(sa_family_t))))
 
 struct galv_unix_endpt {
 	struct galv_unix_addr addr;

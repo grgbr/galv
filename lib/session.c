@@ -2278,12 +2278,13 @@ galv_sess_on_connect(struct galv_conn *   connection,
 		galv_ratelim_pnotice(-err,
 		                     "session: cannot poll connection",
 		                     "");
-		if (!ret)
-			ret = err;
+		ret = err;
+
 		goto close;
 	}
 
 	galv_debug("session: connection established [addr:%p]", sess);
+	galv_assert_intern(!ret || (ret == -EINTR));
 
 	return ret;
 
@@ -2291,17 +2292,8 @@ close:
 	galv_sess_close_conn(sess);
 	galv_sess_free_conn(accept, sess);
 
-	switch (ret) {
-	case -EINTR:  /* Interrupted by a signal */
-	case -ENOMEM: /* No more memory available. */
-	case -ENOSPC: /* Too many epoll file descriptors registered. */
-		return ret;
-
-	default:
-		break;
-	}
-
-	return 0;
+	/* Tell the caller to destroy this connection. */
+	return ret;
 }
 
 static
@@ -2382,13 +2374,19 @@ galv_sess_close(struct galv_conn * __restrict   connection,
 static
 int
 galv_sess_on_error(struct galv_conn *   connection __unused,
+                   int                  error,
                    uint32_t             events __unused,
                    const struct upoll * poller __unused)
 {
 	galv_conn_assert_intern(connection);
+	galv_assert_intern(error);
+	galv_assert_intern(events & EPOLLERR);
 	galv_assert_intern(poller);
 
-	galv_notice("session: unexpected connection socket error");
+	/* TODO: should we close or is this a transcient error ? */
+	galv_ratelim_pnotice(error,
+	                     "session: unexpected connection socket error",
+	                     "");
 
 	return 0;
 }

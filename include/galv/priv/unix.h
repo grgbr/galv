@@ -9,6 +9,7 @@
 #define _GALV_PRIV_UNIX_H
 
 #include <galv/priv/adopt.h>
+#include <galv/priv/binder.h>
 #include <sys/un.h>
 #include <sys/socket.h>
 

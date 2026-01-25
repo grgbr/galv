@@ -15,13 +15,13 @@
 #include <utils/sock.h>
 
 typedef struct galv_conn *
-        galv_adopt_create_conn_fn(const struct galv_adopt * __restrict,
+        galv_adopt_create_conn_fn(struct galv_adopt * __restrict,
                                   const struct galv_conn_ops * __restrict,
                                   int,
                                   struct galv_accept * __restrict);
 
 typedef int
-        galv_adopt_destroy_conn_fn(const struct galv_adopt * __restrict,
+        galv_adopt_destroy_conn_fn(struct galv_adopt * __restrict,
                                    struct galv_conn * __restrict);
 
 struct galv_adopt_ops {
@@ -61,17 +61,6 @@ galv_adopt_conn_nr(const struct galv_adopt * __restrict adopter)
 }
 
 static inline
-struct stroll_falloc *
-galv_adopt_allocator(const struct galv_adopt * __restrict adopter)
-{
-	galv_adopt_assert_api(adopter);
-
-STROLL_IGNORE_WARN("-Wcast-qual")
-	return (struct stroll_falloc *)&adopter->alloc;
-STROLL_RESTORE_WARN
-}
-
-static inline
 int
 galv_adopt_fd(const struct galv_adopt * __restrict adopter)
 {
@@ -81,14 +70,14 @@ galv_adopt_fd(const struct galv_adopt * __restrict adopter)
 }
 
 extern struct galv_conn *
-galv_adopt_create_conn(const struct galv_adopt * __restrict    adopter,
+galv_adopt_create_conn(struct galv_adopt * __restrict          adopter,
                        const struct galv_conn_ops * __restrict operations,
                        int                                     flags,
                        struct galv_accept * __restrict         acceptor);
 
 extern int
-galv_adopt_destroy_conn(const struct galv_adopt * __restrict adopter,
-                        struct galv_conn * __restrict        connection);
+galv_adopt_destroy_conn(struct galv_adopt * __restrict adopter,
+                        struct galv_conn * __restrict  connection);
 
 extern void
 galv_adopt_setup(struct galv_adopt * __restrict           adopter,

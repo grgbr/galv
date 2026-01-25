@@ -324,10 +324,11 @@ galvsmpl_echo_close(struct galv_conn *   connection,
 static
 int
 galvsmpl_echo_on_error(struct galv_conn *   connection __unused,
+                       int                  error,
                        uint32_t             events __unused,
                        const struct upoll * poller __unused)
 {
-	galvsmpl_debug("unexpected connection socket error");
+	galvsmpl_pdebug(error, "unexpected connection socket error");
 
 	return 0;
 }

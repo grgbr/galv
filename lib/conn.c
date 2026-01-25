@@ -8,6 +8,20 @@
  ******************************************************************************/
 
 int
+galv_conn_async_error(const struct galv_conn * __restrict connection)
+{
+	galv_conn_assert_api(connection);
+
+	int       stat;
+	socklen_t sz = sizeof(stat);
+
+	etux_sock_getopt(connection->fd, SOL_SOCKET, SO_ERROR, &stat, &sz);
+	galv_assert_intern(sz == sizeof(stat));
+
+	return stat;
+}
+
+int
 galv_conn_on_send_shut(struct galv_conn * __restrict   connection,
                        uint32_t                        events,
                        const struct upoll * __restrict poller)
@@ -135,7 +149,10 @@ galv_conn_dispatch(struct upoll_worker * worker,
 	galv_assert_intern(conn->accept);
 
 	if (events & EPOLLERR) {
-		ret = galv_conn_on_error(conn, events, poller);
+		ret = galv_conn_on_error(conn,
+		                         galv_conn_async_error(conn),
+		                         events,
+		                         poller);
 		if (ret)
 			return ret;
 
@@ -183,13 +200,16 @@ galv_conn_enable_dispatch(struct galv_conn * __restrict   connection,
 		/* This connection has not been registered for polling yet. */
 		int ret;
 
-		ret = upoll_register(poller,
-		                     connection->fd,
-		                     events,
-		                     &connection->work);
-		galv_assert_intern((ret == -ENOMEM) || (ret == -ENOSPC));
-		if (ret)
+		ret = upoll_register_dispatch(poller,
+		                              connection->fd,
+		                              events,
+		                              &connection->work,
+		                              dispatch);
+		if (ret) {
+			galv_assert_intern((ret == -ENOMEM) ||
+			                   (ret == -ENOSPC));
 			return ret;
+		}
 	}
 	else {
 		/*
@@ -200,7 +220,6 @@ galv_conn_enable_dispatch(struct galv_conn * __restrict   connection,
 		upoll_apply(poller, connection->fd, &connection->work);
 	}
 
-	connection->work.dispatch = dispatch;
 	connection->ctx = context;
 
 	return 0;
@@ -224,6 +243,25 @@ galv_conn_poll(struct galv_conn * __restrict   connection,
 	                                 events,
 	                                 galv_conn_dispatch,
 	                                 context);
+}
+
+void
+galv_conn_setup(struct galv_conn * __restrict           connection,
+                int                                     fd,
+                const struct galv_conn_ops * __restrict operations,
+                struct galv_accept * __restrict         acceptor)
+{
+	galv_assert_intern(connection);
+	galv_assert_intern(fd >= 0);
+	galv_conn_assert_ops_intern(operations);
+	galv_assert_intern(acceptor);
+
+	connection->ops = operations;
+	connection->state = GALV_CONN_CLOSED_STATE;
+	connection->fd = fd;
+	connection->work.dispatch = NULL;
+	connection->accept = acceptor;
+	connection->link = GALV_CONN_FLOWING_LINK;
 }
 
 int

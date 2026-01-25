@@ -27,6 +27,11 @@ typedef int galv_conn_halt_fn(struct galv_conn * __restrict,
 typedef void galv_conn_close_fn(struct galv_conn * __restrict,
                                 const struct upoll * __restrict);
 
+typedef int galv_conn_handle_error_fn(struct galv_conn * __restrict,
+                                      int,
+                                      uint32_t,
+                                      const struct upoll * __restrict);
+
 /*
  * TODO: document state chart.
  *
@@ -41,7 +46,7 @@ struct galv_conn_ops {
 	galv_conn_handle_events_fn * on_recv_shut;
 	galv_conn_halt_fn *          halt;
 	galv_conn_close_fn *         close;
-	galv_conn_handle_events_fn * on_error;
+	galv_conn_handle_error_fn *  on_error;
 };
 
 #define galv_conn_assert_ops_api(_ops) \
@@ -55,7 +60,7 @@ struct galv_conn_ops {
 	galv_assert_api((_ops)->on_error)
 
 enum galv_conn_state {
-	GALV_CONN_CLOSED_STATE      = 0,
+	GALV_CONN_CLOSED_STATE       = 0,
 	GALV_CONN_CONNECTING_STATE,
 	GALV_CONN_ESTABLISHED_STATE,
 	GALV_CONN_CLOSING_STATE,
@@ -76,7 +81,11 @@ struct galv_conn {
 	int                          fd;
 	struct upoll_worker          work;
 	enum galv_conn_link          link;
-	struct galv_accept *         accept;
+	union {
+#warning change me (make a superclass of acceptor and coupler)
+		struct galv_accept *         accept;
+		struct galv_coupler *        coupler;
+	};
 	void *                       ctx;
 	struct stroll_dlist_node     repo;
 };
@@ -181,7 +190,7 @@ galv_conn_unwatch(struct galv_conn * __restrict connection,
 
 static inline
 void
-galv_conn_apply_watch(struct galv_conn * __restrict connection,
+galv_conn_apply_watch(struct galv_conn * __restrict   connection,
                       const struct upoll * __restrict poller)
 {
 	galv_conn_assert_api(connection);
@@ -211,6 +220,10 @@ galv_conn_may_send(const struct galv_conn * __restrict connection)
 
 	return !(connection->link & GALV_CONN_SENDSHUT_LINK);
 }
+
+extern int
+galv_conn_async_error(const struct galv_conn * __restrict connection)
+	__export_public;
 
 /**
  * @return A non zero number of bytes sent upon success, a negative `errno`
@@ -366,8 +379,8 @@ galv_conn_poll(struct galv_conn * __restrict   connection,
 
 static inline
 void
-galv_conn_unpoll(const struct galv_conn * __restrict connection,
-                 const struct upoll * __restrict     poller)
+galv_conn_unpoll(struct galv_conn * __restrict   connection,
+                 const struct upoll * __restrict poller)
 {
 	galv_conn_assert_api(connection);
 	galv_assert_api(connection->fd >= 0);

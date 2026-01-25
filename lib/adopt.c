@@ -9,7 +9,7 @@
 #include <stroll/page.h>
 
 struct galv_conn *
-galv_adopt_create_conn(const struct galv_adopt * __restrict    adopter,
+galv_adopt_create_conn(struct galv_adopt * __restrict          adopter,
                        const struct galv_conn_ops * __restrict operations,
                        int                                     flags,
                        struct galv_accept * __restrict         acceptor)
@@ -43,11 +43,11 @@ err:
 }
 
 int
-galv_adopt_destroy_conn(const struct galv_adopt * __restrict adopter,
-                        struct galv_conn * __restrict        connection)
+galv_adopt_destroy_conn(struct galv_adopt * __restrict adopter,
+                        struct galv_conn * __restrict  connection)
 {
 	galv_adopt_assert_api(adopter);
-	galv_assert_api(connection);
+	galv_conn_assert_api(connection);
 
 	galv_gate_untrack(adopter->gate, connection);
 

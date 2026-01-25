@@ -72,7 +72,7 @@ show()
 
 spawn_srv()
 {
-	local cnt=5
+	local cnt=3
 	local pid
 
 	$ECHO_SRV >/dev/null 2>&1 &
@@ -86,12 +86,13 @@ spawn_srv()
 
 		sleep 1
 
-		if [ ! -d "/proc/$pid" ]; then
-			return 1
-		fi
-
 		cnt=$((cnt - 1))
 	done
+	
+	if [ ! -d "/proc/$pid" ]; then
+		printf "Failed to spawn service\n" >&2
+		return 1
+	fi
 
 	echo "$pid"
 

@@ -22,12 +22,12 @@ enum galv_accept_state {
 };
 
 struct galv_accept {
-	struct upoll_worker            work;
-	struct galv_repo *             repo;
-	struct galv_adopt *            adopt;
-	const struct galv_conn_ops *   conn_ops;
-	int                            conn_flags;
-	enum galv_accept_state         state;
+	struct upoll_worker          work;
+	struct galv_repo *           repo;
+	struct galv_adopt *          adopt;
+	const struct galv_conn_ops * conn_ops;
+	int                          conn_flags;
+	enum galv_accept_state       state;
 };
 
 extern int
