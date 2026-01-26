@@ -2260,34 +2260,35 @@ galv_sess_on_connect(struct galv_conn *   connection,
 	struct galv_sess_accept * accept;
 	struct galv_sess_conn *   sess;
 	int                       ret;
-	int                       err;
 
-	accept = galv_sess_from_accept(galv_conn_acceptor(connection));
+	accept = galv_sess_from_accept((const struct galv_accept *)
+	                               galv_conn_dispatcher(connection));
 	sess = galv_sess_alloc_conn(accept);
 	if (!sess)
 		return -errno;
 
 	galv_sess_open_conn(sess, connection);
 
-	ret = accept->ops->connect(sess);
-	if (ret && (ret != -EINTR))
-		goto close;
-
-	err = galv_conn_poll(connection, poller, EPOLLIN, sess);
-	if (err) {
-		galv_ratelim_pnotice(-err,
-		                     "session: cannot poll connection",
-		                     "");
-		ret = err;
-
+	ret = galv_conn_poll(connection, poller, EPOLLIN, sess);
+	if (ret) {
+		if (ret != -ENOMEM)
+			galv_ratelim_pnotice(-ret,
+			                     "session: cannot poll connection",
+			                     "");
 		goto close;
 	}
+
+	ret = accept->ops->connect(sess);
+	if (ret && (ret != -EINTR))
+		goto unpoll;
 
 	galv_debug("session: connection established [addr:%p]", sess);
 	galv_assert_intern(!ret || (ret == -EINTR));
 
 	return ret;
 
+unpoll:
+	galv_conn_unpoll(connection, poller);
 close:
 	galv_sess_close_conn(sess);
 	galv_sess_free_conn(accept, sess);
@@ -2363,7 +2364,8 @@ galv_sess_close(struct galv_conn * __restrict   connection,
 
 	struct galv_sess_conn *   sess = galv_sess_from_conn(connection);
 	struct galv_sess_accept * accept =
-		galv_sess_from_accept(galv_conn_acceptor(connection));
+		galv_sess_from_accept((const struct galv_accept *)
+		                      galv_conn_dispatcher(connection));
 
 	accept->ops->close(sess);
 	galv_conn_unpoll(connection, poller);

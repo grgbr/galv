@@ -22,6 +22,18 @@
 #include <galv/priv/unix.h>
 #include <utils/unsk.h>
 
+/* TODO: make sure _path is constant ! */
+#define GALV_UNIX_NAMED_ADDR(_path) \
+	{ \
+		.data = UNSK_NAMED_ADDR(_path), \
+		.size = UNSK_NAMED_ADDR_LEN(_path) \
+	}
+
+extern void
+galv_unix_make_named_addr(struct galv_unix_addr * __restrict address,
+                          const char * __restrict            path)
+	__export_public;
+
 /******************************************************************************
  * UNIX (client-side) connection binder handling
  ******************************************************************************/

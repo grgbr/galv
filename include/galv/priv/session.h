@@ -174,7 +174,8 @@ galv_sess_conn_acceptor(const struct galv_sess_conn * __restrict session)
 {
 	galv_assert_api(session);
 
-	return galv_sess_from_accept(galv_conn_acceptor(session->conn));
+	return galv_sess_from_accept((const struct galv_accept *)
+	                             galv_conn_dispatcher(session->conn));
 }
 
 #endif /* _GALV_PRIV_SESSION_H */

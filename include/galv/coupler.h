@@ -13,16 +13,6 @@
 
 struct sockaddr;
 
-#define GALV_COUPLER_SETUP(_bind, _repo, _ops, _type) \
-	{ \
-		.binder    = _bind, \
-		.repo      = _repo, \
-		.conn_ops  = _ops, \
-		.conn_type = compile_eval(_type, \
-		                          _type, \
-		                          "invalid coupler socket type") \
-	}
-
 extern struct galv_conn *
 galv_coupler_create_conn(struct galv_coupler * __restrict coupler,
                          int                              flags)

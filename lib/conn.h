@@ -12,8 +12,6 @@
 #include "galv/conn.h"
 #include <stroll/palloc.h>
 
-struct galv_accept;
-
 /******************************************************************************
  * Generic connection handling
  ******************************************************************************/
@@ -35,7 +33,7 @@ struct galv_accept;
 	galv_assert_intern((_conn)->state < GALV_CONN_STATE_NR); \
 	galv_assert_intern((_conn)->link >= 0); \
 	galv_assert_intern((_conn)->link <= GALV_CONN_ENDED_LINK); \
-	galv_assert_intern((_conn)->accept)
+	galv_assert_intern((_conn)->dispatch)
 
 static inline
 int
@@ -44,7 +42,7 @@ galv_conn_on_may_xfer(struct galv_conn * __restrict   connection,
                       const struct upoll * __restrict poller)
 {
 	galv_conn_assert_api(connection);
-	galv_assert_api(connection->state != GALV_CONN_CLOSED_STATE);
+	galv_assert_api(connection->state >= GALV_CONN_CONNECTING_STATE);
 	galv_assert_api(!(events & ~((uint32_t)(EPOLLIN | EPOLLPRI |
 	                                        EPOLLOUT | EPOLLHUP))));
 	galv_assert_api(events);
@@ -60,7 +58,7 @@ galv_conn_on_connect(struct galv_conn * __restrict   connection,
                      const struct upoll * __restrict poller)
 {
 	galv_conn_assert_api(connection);
-	galv_assert_api(connection->state == GALV_CONN_CLOSED_STATE);
+	galv_assert_api(connection->state <= GALV_CONN_BINDING_STATE);
 	galv_assert_api(!(events & ~((uint32_t)(EPOLLIN | EPOLLPRI |
 	                                        EPOLLOUT))));
 	galv_assert_api(poller);
@@ -90,16 +88,14 @@ galv_conn_on_error(struct galv_conn * __restrict   connection,
 }
 
 extern int
-galv_conn_enable_dispatch(struct galv_conn * __restrict   connection,
-                          const struct upoll * __restrict poller,
-                          uint32_t                        events,
-                          upoll_dispatch_fn *             dispatch,
-                          void * __restrict               context);
+galv_conn_bind(struct galv_conn * __restrict   connection,
+               const struct upoll * __restrict poller,
+               upoll_dispatch_fn *             dispatch);
 
 extern void
 galv_conn_setup(struct galv_conn * __restrict           connection,
                 int                                     fd,
                 const struct galv_conn_ops * __restrict operations,
-                struct galv_accept * __restrict         acceptor);
+                struct galv_dispatch * __restrict       dispatcher);
 
 #endif /* _GALV_LIB_CONN_H */

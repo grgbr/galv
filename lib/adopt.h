@@ -14,6 +14,8 @@
 #include "gate.h"
 #include <utils/sock.h>
 
+struct galv_accept;
+
 typedef struct galv_conn *
         galv_adopt_create_conn_fn(struct galv_adopt * __restrict,
                                   const struct galv_conn_ops * __restrict,

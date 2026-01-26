@@ -360,12 +360,8 @@ galvsmpl_loop(struct galv_repo *   repository,
 	do {
 		ret = upoll_process(poller, -1);
 	} while (!ret || (ret == -EINTR));
-	switch (ret) {
-	case -ESHUTDOWN:
-	case -EINTR:
+	if (ret == -ESHUTDOWN)
 		ret = 0;
-		break;
-	}
 
 	galv_accept_suspend(acceptor, poller);
 	galv_conn_repo_halt(repository, poller);
@@ -419,8 +415,12 @@ main(void)
 		goto fini;
 	}
 
-	/* Max number of connections + 1 for acceptor / adopter socket. */
-	ret = upoll_open(&poll, GALVSMPL_ECHO_CONN_NR + 1);
+	/*
+	 * Max number of connections
+	 * + 1 for acceptor / adopter socket
+	 * + 1 for signal channel
+	 */
+	ret = upoll_open(&poll, GALVSMPL_ECHO_CONN_NR + 2);
 	if (ret) {
 		galvsmpl_perr(-ret, "failed to open poller");
 		goto close_adopt;

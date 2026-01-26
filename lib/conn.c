@@ -27,7 +27,8 @@ galv_conn_on_send_shut(struct galv_conn * __restrict   connection,
                        const struct upoll * __restrict poller)
 {
 	galv_conn_assert_api(connection);
-	galv_assert_api(connection->state != GALV_CONN_CLOSED_STATE);
+	galv_assert_api(connection->fd >= 0);
+	galv_assert_api(connection->state >= GALV_CONN_CONNECTING_STATE);
 	galv_assert_api(!(connection->link & GALV_CONN_SENDSHUT_LINK));
 	galv_assert_api(!(events & ~GALV_CONN_POLL_VALID_EVENTS));
 	galv_assert_api(events & (EPOLLIN | EPOLLPRI | EPOLLHUP));
@@ -48,7 +49,8 @@ galv_conn_on_recv_shut(struct galv_conn * __restrict   connection,
                        const struct upoll * __restrict poller)
 {
 	galv_conn_assert_api(connection);
-	galv_assert_api(connection->state != GALV_CONN_CLOSED_STATE);
+	galv_assert_api(connection->fd >= 0);
+	galv_assert_api(connection->state >= GALV_CONN_CONNECTING_STATE);
 	galv_assert_api(!(connection->link & GALV_CONN_RECVSHUT_LINK));
 	galv_assert_api(!(events & ~GALV_CONN_POLL_VALID_EVENTS));
 	galv_assert_api(events & (EPOLLIN | EPOLLRDHUP));
@@ -146,7 +148,7 @@ galv_conn_dispatch(struct upoll_worker * worker,
 	galv_assert_intern(conn->state != GALV_CONN_CLOSED_STATE);
 	galv_assert_intern(conn->fd >= 0);
 	galv_assert_intern(conn->work.dispatch);
-	galv_assert_intern(conn->accept);
+	galv_assert_intern(conn->dispatch);
 
 	if (events & EPOLLERR) {
 		ret = galv_conn_on_error(conn,
@@ -172,6 +174,7 @@ galv_conn_dispatch(struct upoll_worker * worker,
 		ret = galv_conn_process_closing(conn, events, poller);
 		break;
 
+	case GALV_CONN_BINDING_STATE:
 	case GALV_CONN_CLOSED_STATE:
 	default:
 		galv_assert_intern(0);
@@ -180,24 +183,26 @@ galv_conn_dispatch(struct upoll_worker * worker,
 	return ret;
 }
 
+static
 int
 galv_conn_enable_dispatch(struct galv_conn * __restrict   connection,
                           const struct upoll * __restrict poller,
                           uint32_t                        events,
-                          upoll_dispatch_fn *             dispatch,
-                          void * __restrict               context)
+                          upoll_dispatch_fn *             dispatch)
 {
 	galv_conn_assert_intern(connection);
 	galv_assert_intern(connection->fd >= 0);
+	galv_assert_intern(connection->state != GALV_CONN_CLOSING_STATE);
 	galv_assert_intern(poller);
 	galv_assert_intern(events);
 	galv_assert_intern(!(events & ~GALV_CONN_POLL_VALID_EVENTS));
 	galv_assert_intern(dispatch);
 
-	bool init = !connection->work.dispatch;
-
-	if (init) {
+	if (!connection->work.dispatch) {
 		/* This connection has not been registered for polling yet. */
+		galv_assert_intern(connection->state <=
+		                   GALV_CONN_CONNECTING_STATE);
+
 		int ret;
 
 		ret = upoll_register_dispatch(poller,
@@ -216,13 +221,31 @@ galv_conn_enable_dispatch(struct galv_conn * __restrict   connection,
 		 * This connection has already been registered: just reset
 		 * polling event mask.
 		 */
+		connection->work.dispatch = dispatch;
 		upoll_setup_watch(&connection->work, events);
 		upoll_apply(poller, connection->fd, &connection->work);
 	}
 
-	connection->ctx = context;
-
 	return 0;
+}
+
+int
+galv_conn_bind(struct galv_conn * __restrict   connection,
+               const struct upoll * __restrict poller,
+               upoll_dispatch_fn *             dispatch)
+{
+	galv_conn_assert_intern(connection);
+	galv_assert_intern(connection->fd >= 0);
+	galv_assert_intern(connection->state != GALV_CONN_CLOSING_STATE);
+	galv_assert_intern(poller);
+	galv_assert_intern(dispatch);
+
+	connection->state = GALV_CONN_BINDING_STATE;
+
+	return galv_conn_enable_dispatch(connection,
+	                                 poller,
+	                                 EPOLLOUT,
+	                                 dispatch);
 }
 
 int
@@ -233,35 +256,89 @@ galv_conn_poll(struct galv_conn * __restrict   connection,
 {
 	galv_conn_assert_api(connection);
 	galv_assert_api(connection->fd >= 0);
-	galv_assert_api(connection->state != GALV_CONN_CLOSED_STATE);
+	galv_assert_api(connection->state >= GALV_CONN_CONNECTING_STATE);
 	galv_assert_api(poller);
 	galv_assert_api(events);
 	galv_assert_api(!(events & ~GALV_CONN_POLL_VALID_EVENTS));
 
-	return galv_conn_enable_dispatch(connection,
-	                                 poller,
-	                                 events,
-	                                 galv_conn_dispatch,
-	                                 context);
+	int ret;
+
+	ret = galv_conn_enable_dispatch(connection,
+	                                poller,
+	                                events,
+	                                galv_conn_dispatch);
+	connection->ctx = context;
+
+	return ret;
 }
 
 void
 galv_conn_setup(struct galv_conn * __restrict           connection,
                 int                                     fd,
                 const struct galv_conn_ops * __restrict operations,
-                struct galv_accept * __restrict         acceptor)
+                struct galv_dispatch * __restrict       dispatcher)
 {
 	galv_assert_intern(connection);
 	galv_assert_intern(fd >= 0);
 	galv_conn_assert_ops_intern(operations);
-	galv_assert_intern(acceptor);
+	galv_dispatch_assert_intern(dispatcher);
 
 	connection->ops = operations;
 	connection->state = GALV_CONN_CLOSED_STATE;
 	connection->fd = fd;
 	connection->work.dispatch = NULL;
-	connection->accept = acceptor;
+	connection->dispatch = dispatcher;
 	connection->link = GALV_CONN_FLOWING_LINK;
+	stroll_dlist_init(&connection->repo);
+}
+
+void
+galv_conn_unpoll(struct galv_conn * __restrict   connection,
+                 const struct upoll * __restrict poller)
+{
+	galv_conn_assert_api(connection);
+	galv_assert_api(connection->fd >= 0);
+	galv_assert_api(poller);
+
+	if (connection->work.dispatch) {
+		galv_assert_api(connection->state >= GALV_CONN_BINDING_STATE);
+
+		upoll_unregister(poller, connection->fd);
+		connection->work.dispatch = NULL;
+	}
+}
+
+static
+int
+galv_conn_do_close(struct galv_conn * __restrict   connection,
+                   const struct upoll * __restrict poller)
+{
+	galv_conn_assert_api(connection);
+	galv_assert_api(connection->fd >= 0);
+	galv_assert_api(poller);
+
+#warning try to substitute with coupler/acceptor on_term callback
+	galv_conn_unpoll(connection, poller);
+
+	return galv_dispatch_on_conn_term(connection->dispatch,
+	                                  connection,
+	                                  poller);
+}
+
+int
+galv_conn_halt(struct galv_conn * __restrict   connection,
+               const struct upoll * __restrict poller)
+{
+	galv_conn_assert_api(connection);
+	galv_assert_api(connection->state >= GALV_CONN_BINDING_STATE);
+	galv_assert_api(connection->state != GALV_CONN_CLOSING_STATE);
+
+	if (connection->state >= GALV_CONN_CONNECTING_STATE) {
+		connection->state = GALV_CONN_CLOSING_STATE;
+		return connection->ops->halt(connection, poller);
+	}
+
+	return galv_conn_do_close(connection, poller);
 }
 
 int
@@ -270,12 +347,12 @@ galv_conn_close(struct galv_conn * __restrict   connection,
 {
 	galv_conn_assert_api(connection);
 	galv_assert_api(connection->fd >= 0);
-	galv_assert_api(connection->state != GALV_CONN_CLOSED_STATE);
 	galv_assert_api(poller);
 
-	connection->ops->close(connection, poller);
+	if (connection->state >= GALV_CONN_CONNECTING_STATE)
+		connection->ops->close(connection, poller);
 
-	return galv_accept_on_conn_term(connection->accept, connection, poller);
+	return galv_conn_do_close(connection, poller);
 }
 
 void

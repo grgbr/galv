@@ -9,12 +9,14 @@
 #define _GALV_LIB_ACCEPT_H
 
 #include "galv/accept.h"
+#include "dispatch.h"
 #include "repo.h"
 #include "adopt.h"
 #include "conn.h"
 
 #define galv_accept_assert_api(_accept) \
 	galv_assert_api(_accept); \
+	galv_dispatch_assert_api(&(_accept)->base); \
 	galv_assert_api((_accept)->work.dispatch); \
 	galv_repo_assert_api((_accept)->repo); \
 	galv_adopt_assert_api((_accept)->adopt); \
@@ -27,6 +29,7 @@
 
 #define galv_accept_assert_intern(_accept) \
 	galv_assert_intern(_accept); \
+	galv_dispatch_assert_intern(&(_accept)->base); \
 	galv_assert_intern((_accept)->work.dispatch); \
 	galv_repo_assert_intern((_accept)->repo); \
 	galv_adopt_assert_intern((_accept)->adopt); \
@@ -45,19 +48,5 @@ galv_accept_conn_nr(const struct galv_accept * __restrict acceptor)
 
 	return galv_adopt_conn_nr(acceptor->adopt);
 }
-
-static inline
-struct galv_adopt *
-galv_accept_adopter(const struct galv_accept * __restrict acceptor)
-{
-	galv_accept_assert_api(acceptor);
-
-	return acceptor->adopt;
-}
-
-extern int
-galv_accept_on_conn_term(struct galv_accept * __restrict acceptor,
-                         struct galv_conn * __restrict   connection,
-                         const struct upoll * __restrict poller);
 
 #endif /* _GALV_LIB_ACCEPT_H */

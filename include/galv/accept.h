@@ -8,7 +8,7 @@
 #ifndef _GALV_ACCEPT_H
 #define _GALV_ACCEPT_H
 
-#include <galv/cdefs.h>
+#include <galv/priv/dispatch.h>
 #include <utils/poll.h>
 
 struct galv_conn_repo;
@@ -22,6 +22,7 @@ enum galv_accept_state {
 };
 
 struct galv_accept {
+	struct galv_dispatch         base;
 	struct upoll_worker          work;
 	struct galv_repo *           repo;
 	struct galv_adopt *          adopt;

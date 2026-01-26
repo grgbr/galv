@@ -53,6 +53,21 @@ galv_unix_conn_debug(
 
 #endif /* defined(CONFIG_GALV_DEBUG) */
 
+void
+galv_unix_make_named_addr(struct galv_unix_addr * __restrict address,
+                          const char * __restrict            path)
+{
+	galv_assert_api(address);
+	galv_assert_api(!unsk_is_named_path_ok(path));
+
+	socklen_t len;
+
+	len = unsk_make_named_addr(&address->data, path);
+	galv_assert_intern(len > 0);
+
+	address->size = len;
+}
+
 /******************************************************************************
  * Unix (client-side) connection binder handling
  ******************************************************************************/
@@ -100,7 +115,10 @@ galv_unix_binder_create_conn(struct galv_binder * __restrict         binder,
 		goto err;
 	}
 
-	galv_conn_setup(&unc->base, sk, operations, coupler);
+	galv_conn_setup(&unc->base,
+	                sk,
+	                operations,
+	                (struct galv_dispatch *)coupler);
 	unc->peer.addr.size = 0;
 	unc->peer.cred.pid = 0;
 	unc->peer.cred.uid = 0;
@@ -127,7 +145,7 @@ galv_unix_binder_connect_conn(
 	const struct sockaddr * __restrict    peer)
 {
 	galv_binder_assert_intern(binder);
-	galv_unix_assert_conn_api((struct galv_unix_conn *)connection);
+	galv_conn_assert_intern(connection);
 
 	struct galv_unix_conn *       unc = (struct galv_unix_conn *)connection;
 	const struct galv_unix_addr * addr = (const struct galv_unix_addr *)
@@ -136,8 +154,7 @@ galv_unix_binder_connect_conn(
 	char                          str[UNSK_NAMED_PATH_MAX];
 
 	galv_assert_api(addr->data.sun_family == AF_UNIX);
-	galv_assert_api(unsk_validate_named_path(addr->data.sun_path) ==
-	                addr->size);
+	galv_assert_api(unsk_is_named_addr(&addr->data, addr->size));
 	unc->peer.addr = *addr;
 
 	ret = unsk_connect(connection->fd, &addr->data, addr->size);
@@ -162,7 +179,13 @@ galv_unix_binder_connect_conn(
 	                   " to [addr:%s]",
 	                   unsk_make_addr_string(str, &addr->data, addr->size));
 
-	return ret;
+	/*
+	 * When no one is listening, i.e, no (named) socket file is existing,
+	 * connect(2) on a UNIX socket returns ENOENT.
+	 * Make error code consistent with other socket types by returning
+	 * ECONNREFUSED.
+	 */
+	return (ret == -ENOENT) ? -ECONNREFUSED : ret;
 }
 
 static
@@ -180,9 +203,8 @@ galv_unix_binder_on_connected(
 	socklen_t                     sz = sizeof(*cred);
 	char                          str[UNSK_NAMED_PATH_MAX];
 
-	galv_assert_api(addr->data.sun_family == AF_UNIX);
-	galv_assert_intern(unsk_validate_named_path(addr->data.sun_path) ==
-	                   addr->size);
+	galv_assert_intern(addr->data.sun_family == AF_UNIX);
+	galv_assert_intern(unsk_is_named_addr(&addr->data, addr->size));
 
 	unsk_getsockopt(connection->fd, SO_PEERCRED, cred, &sz);
 	galv_assert_intern(sz == sizeof(*cred));
@@ -202,14 +224,17 @@ galv_unix_binder_destroy_conn(struct galv_binder * __restrict binder,
 	galv_binder_assert_intern(binder);
 	galv_unix_assert_conn_api((struct galv_unix_conn *)connection);
 
-	int ret;
+	int                           ret;
+#if defined(CONFIG_GALV_DEBUG)
+	const struct galv_unix_conn * unc = (const struct galv_unix_conn *)
+	                                    connection;
+	struct galv_unix_endpt        peer = unc->peer;
+#endif /* defined(CONFIG_GALV_DEBUG) */
 
 	ret = unsk_close(connection->fd);
 	stroll_falloc_free(&binder->alloc, connection);
 	if (!ret || (ret == -EINTR)) {
-		galv_unix_conn_debug(
-			&((struct galv_unix_conn *)connection)->peer,
-			"client connection destroyed");
+		galv_unix_conn_debug(&peer, "client connection destroyed");
 		return ret;
 	}
 
@@ -327,7 +352,10 @@ galv_unix_adopt_create_conn(struct galv_adopt * __restrict          adopter,
 	}
 
 	/* Setup connection internal state. */
-	galv_conn_setup(&unc->base, fd, operations, acceptor);
+	galv_conn_setup(&unc->base,
+	                fd,
+	                operations,
+	                (struct galv_dispatch *)acceptor);
 	unc->peer = peer;
 
 	galv_unix_conn_debug(&unc->peer, "service connection created");
@@ -352,14 +380,17 @@ galv_unix_adopt_destroy_conn(struct galv_adopt * __restrict adopter,
 	galv_unix_assert_adopt_api((const struct galv_unix_adopt *)adopter);
 	galv_conn_assert_intern(connection);
 
-	int ret;
+	int                           ret;
+#if defined(CONFIG_GALV_DEBUG)
+	const struct galv_unix_conn * unc = (const struct galv_unix_conn *)
+	                                    connection;
+	struct galv_unix_endpt        peer = unc->peer;
+#endif /* defined(CONFIG_GALV_DEBUG) */
 
 	ret = unsk_close(connection->fd);
 	stroll_falloc_free(&adopter->alloc, connection);
 	if (!ret || (ret == -EINTR)) {
-		galv_unix_conn_debug(
-			&((struct galv_unix_conn *)connection)->peer,
-			"service connection destroyed");
+		galv_unix_conn_debug(&peer, "service connection destroyed");
 		return ret;
 	}
 

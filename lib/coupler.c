@@ -6,11 +6,21 @@
  ******************************************************************************/
 
 #include "galv/coupler.h"
+#include "dispatch.h"
 #include "binder.h"
 #include "repo.h"
 
+#define galv_coupler_assert_api(_coupler) \
+	galv_assert_api(_coupler); \
+	galv_dispatch_assert_api(&(_coupler)->base); \
+	galv_binder_assert_api((_coupler)->bind); \
+	galv_repo_assert_api((_coupler)->repo); \
+	galv_conn_assert_ops_api((_coupler)->conn_ops); \
+	galv_assert_api((_coupler)->conn_type)
+
 #define galv_coupler_assert_intern(_coupler) \
 	galv_assert_intern(_coupler); \
+	galv_dispatch_assert_intern(&(_coupler)->base); \
 	galv_binder_assert_intern((_coupler)->bind); \
 	galv_repo_assert_intern((_coupler)->repo); \
 	galv_conn_assert_ops_intern((_coupler)->conn_ops); \
@@ -60,16 +70,17 @@ galv_coupler_dispatch(struct upoll_worker * worker,
 
 	conn = galv_conn_from_worker(worker);
 	galv_conn_assert_intern(conn);
-	galv_assert_intern(conn->state == GALV_CONN_CLOSED_STATE);
+	galv_assert_intern(conn->state == GALV_CONN_BINDING_STATE);
 	galv_assert_intern(conn->fd >= 0);
 	galv_assert_intern(conn->work.dispatch);
-	galv_assert_intern(conn->coupler);
+	galv_assert_intern(conn->dispatch);
 
 	ret = galv_conn_async_error(conn);
 	if (!ret) {
 		galv_assert_intern(!(events & EPOLLERR));
 
-		return galv_coupler_on_connect(conn->coupler,
+		return galv_coupler_on_connect((const struct galv_coupler *)
+		                               galv_conn_dispatcher(conn),
 		                               conn,
 		                               events,
 		                               poller);
@@ -94,19 +105,18 @@ galv_coupler_connect_conn(const struct galv_coupler * __restrict coupler,
 
 	ret = galv_binder_connect_conn(bind, connection, peer);
 	galv_assert_intern(ret <= 0);
-	if (!ret)
+	if (!ret) {
 		return galv_coupler_on_connect(coupler,
 		                               connection,
 		                               EPOLLIN | EPOLLOUT,
 		                               poller);
+	}
 
 	switch (ret) {
 	case -EINPROGRESS:
-		return galv_conn_enable_dispatch(connection,
-		                                 poller,
-		                                 EPOLLOUT,
-		                                 galv_coupler_dispatch,
-		                                 NULL);
+		return galv_conn_bind(connection,
+		                      poller,
+		                      galv_coupler_dispatch);
 
 	case -EINTR:
 		/* Interrupted by a signal before connect(2) started. */
@@ -126,6 +136,8 @@ galv_coupler_connect_conn(const struct galv_coupler * __restrict coupler,
 		 */
 		return ret;
 
+	case -ECONNREFUSED:
+		/* No remote peer is listening. */
 	case -ETIMEDOUT:
 		/*  Timeout while attempting connection (server busy ?). */
 		break;
@@ -162,6 +174,24 @@ galv_coupler_destroy_conn(const struct galv_coupler * __restrict coupler,
 	return galv_binder_destroy_conn(coupler->bind, connection);
 }
 
+static
+int
+galv_coupler_on_conn_term(struct galv_dispatch * __restrict dispatcher,
+                          struct galv_conn * __restrict     connection,
+                          const struct upoll * __restrict   poller)
+{
+	galv_coupler_assert_intern((struct galv_coupler *)dispatcher);
+	galv_conn_assert_intern(connection);
+	galv_assert_intern(connection->fd >= 0);
+	galv_assert_intern(poller);
+
+	struct galv_coupler * cpl = (struct galv_coupler *)dispatcher;
+
+	galv_conn_repo_unregister(cpl->repo, connection);
+
+	return galv_binder_destroy_conn(cpl->bind, connection);
+}
+
 void
 galv_coupler_setup(struct galv_coupler * __restrict        coupler,
 	           struct galv_binder * __restrict         binder,
@@ -175,6 +205,7 @@ galv_coupler_setup(struct galv_coupler * __restrict        coupler,
 	galv_conn_assert_ops_api(operations);
 	galv_assert_api(type);
 
+	coupler->base.on_conn_term = galv_coupler_on_conn_term;
 	coupler->bind = binder;
 	coupler->repo = repo;
 	coupler->conn_ops = operations;

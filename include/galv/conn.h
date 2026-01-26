@@ -11,7 +11,7 @@
 #include <stroll/dlist.h>
 
 struct galv_conn;
-struct galv_accept;
+struct galv_dispatch;
 
 /******************************************************************************
  * Generic connection handling
@@ -61,6 +61,7 @@ struct galv_conn_ops {
 
 enum galv_conn_state {
 	GALV_CONN_CLOSED_STATE       = 0,
+	GALV_CONN_BINDING_STATE,
 	GALV_CONN_CONNECTING_STATE,
 	GALV_CONN_ESTABLISHED_STATE,
 	GALV_CONN_CLOSING_STATE,
@@ -81,11 +82,7 @@ struct galv_conn {
 	int                          fd;
 	struct upoll_worker          work;
 	enum galv_conn_link          link;
-	union {
-#warning change me (make a superclass of acceptor and coupler)
-		struct galv_accept *         accept;
-		struct galv_coupler *        coupler;
-	};
+	struct galv_dispatch *       dispatch;
 	void *                       ctx;
 	struct stroll_dlist_node     repo;
 };
@@ -97,7 +94,7 @@ struct galv_conn {
 	galv_assert_api((_conn)->state < GALV_CONN_STATE_NR); \
 	galv_assert_api((_conn)->link >= 0); \
 	galv_assert_api((_conn)->link <= GALV_CONN_ENDED_LINK); \
-	galv_assert_api((_conn)->accept)
+	galv_assert_api((_conn)->dispatch)
 
 #define GALV_CONN_POLL_VALID_EVENTS \
 	((uint32_t)(EPOLLIN | EPOLLPRI | EPOLLRDHUP | \
@@ -113,13 +110,13 @@ galv_conn_from_worker(const struct upoll_worker * __restrict worker)
 }
 
 static inline
-struct galv_accept *
-galv_conn_acceptor(const struct galv_conn * __restrict connection)
+struct galv_dispatch *
+galv_conn_dispatcher(const struct galv_conn * __restrict connection)
 {
 	galv_conn_assert_api(connection);
 	galv_assert_api(connection->state != GALV_CONN_CLOSED_STATE);
 
-	return connection->accept;
+	return connection->dispatch;
 }
 
 static inline
@@ -250,7 +247,7 @@ galv_conn_send(struct galv_conn * __restrict connection,
 	(MSG_DONTWAIT | MSG_EOR |MSG_MORE | MSG_NOSIGNAL | MSG_OOB)
 	galv_conn_assert_api(connection);
 	galv_assert_api(connection->fd >= 0);
-	galv_assert_api(connection->state != GALV_CONN_CLOSED_STATE);
+	galv_assert_api(connection->state >= GALV_CONN_CONNECTING_STATE);
 	galv_assert_api(!(connection->link & GALV_CONN_SENDSHUT_LINK));
 	galv_assert_api(buff); /* prohibit empty packets ! */
 	galv_assert_api(size); /* prohibit empty packets ! */
@@ -301,7 +298,7 @@ galv_conn_recv(struct galv_conn * __restrict connection,
 	(MSG_DONTWAIT | MSG_ERRQUEUE | MSG_OOB | MSG_PEEK | MSG_TRUNC)
 	galv_conn_assert_api(connection);
 	galv_assert_api(connection->fd >= 0);
-	galv_assert_api(connection->state != GALV_CONN_CLOSED_STATE);
+	galv_assert_api(connection->state >= GALV_CONN_CONNECTING_STATE);
 	galv_assert_api(!(connection->link & GALV_CONN_RECVSHUT_LINK));
 	galv_assert_api(buff);
 	galv_assert_api(size);
@@ -345,7 +342,7 @@ galv_conn_recvmsg(struct galv_conn * __restrict connection,
 	(MSG_CMSG_CLOEXEC | GALV_CONN_RECV_VALID_FLAGS)
 	galv_conn_assert_api(connection);
 	galv_assert_api(connection->fd >= 0);
-	galv_assert_api(connection->state != GALV_CONN_CLOSED_STATE);
+	galv_assert_api(connection->state >= GALV_CONN_CONNECTING_STATE);
 	galv_assert_api(!(connection->link & GALV_CONN_RECVSHUT_LINK));
 	galv_assert_api(msg);
 	galv_assert_api(!msg->msg_name);
@@ -377,33 +374,15 @@ galv_conn_poll(struct galv_conn * __restrict   connection,
                void * __restrict               context)
 	__export_public;
 
-static inline
-void
+extern void
 galv_conn_unpoll(struct galv_conn * __restrict   connection,
                  const struct upoll * __restrict poller)
-{
-	galv_conn_assert_api(connection);
-	galv_assert_api(connection->fd >= 0);
-	galv_assert_api(connection->state != GALV_CONN_CLOSED_STATE);
-	galv_assert_api(poller);
+	__export_public;
 
-	upoll_unregister(poller, connection->fd);
-	connection->work.dispatch = NULL;
-}
-
-static inline
-int
+extern int
 galv_conn_halt(struct galv_conn * __restrict   connection,
                const struct upoll * __restrict poller)
-{
-	galv_conn_assert_api(connection);
-	galv_assert_api(connection->state != GALV_CONN_CLOSING_STATE);
-	galv_assert_api(connection->state != GALV_CONN_CLOSED_STATE);
-
-	connection->state = GALV_CONN_CLOSING_STATE;
-
-	return connection->ops->halt(connection, poller);
-}
+	__export_public;
 
 /**
  * Close an asynchronous socket.

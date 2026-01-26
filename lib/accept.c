@@ -57,7 +57,8 @@ galv_accept_halt(struct galv_accept * __restrict acceptor,
 		galv_accept_suspend(acceptor, poller);
 
 	galv_conn_repo_foreach_safe(acceptor->repo, conn, tmp) {
-		if (galv_conn_acceptor(conn) == acceptor)
+		if ((const struct galv_accept *)
+		    galv_conn_dispatcher(conn) == acceptor)
 			galv_conn_close(conn, poller);
 	}
 }
@@ -92,25 +93,28 @@ galv_accept_on_conn_request(struct galv_accept * __restrict acceptor,
 	return ret;
 }
 
+static
 int
-galv_accept_on_conn_term(struct galv_accept * __restrict acceptor,
-                         struct galv_conn * __restrict   connection,
-                         const struct upoll * __restrict poller)
+galv_accept_on_conn_term(struct galv_dispatch * __restrict dispatcher,
+                         struct galv_conn * __restrict     connection,
+                         const struct upoll * __restrict   poller)
 {
-	galv_accept_assert_intern(acceptor);
+	galv_accept_assert_intern((struct galv_accept *)dispatcher);
 	galv_conn_assert_intern(connection);
+	galv_assert_intern(connection->fd >= 0);
 	galv_assert_intern(poller);
 
-	int ret;
+	struct galv_accept * accept = (struct galv_accept *)dispatcher;
+	int                  ret;
 
-	galv_conn_repo_unregister(acceptor->repo, connection);
-	ret = galv_adopt_destroy_conn(acceptor->adopt, connection);
+	galv_conn_repo_unregister(accept->repo, connection);
+	ret = galv_adopt_destroy_conn(accept->adopt, connection);
 
-	upoll_enable_watch(&acceptor->work, EPOLLIN);
-	if (acceptor->state == GALV_ACCEPT_RUNNING_STATE)
+	upoll_enable_watch(&accept->work, EPOLLIN);
+	if (accept->state == GALV_ACCEPT_RUNNING_STATE)
 		upoll_apply(poller,
-		            galv_adopt_fd(acceptor->adopt),
-		            &acceptor->work);
+		            galv_adopt_fd(accept->adopt),
+		            &accept->work);
 
 	return ret;
 }
@@ -205,6 +209,7 @@ galv_accept_open(struct galv_accept * __restrict         acceptor,
 	if (err)
 		return err;
 
+	acceptor->base.on_conn_term = galv_accept_on_conn_term;
 	acceptor->work.dispatch = galv_accept_dispatch;
 	acceptor->repo = repository;
 	acceptor->adopt = adopter;

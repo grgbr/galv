@@ -13,6 +13,8 @@
 #include "common.h"
 #include "conn.h"
 
+struct galv_coupler;
+
 typedef struct galv_conn *
         galv_binder_create_conn_fn(struct galv_binder * __restrict,
                                    const struct galv_conn_ops * __restrict,
