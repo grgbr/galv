@@ -10,6 +10,9 @@ extern struct elog_stdio galvsmpl_log;
 #define galvsmpl_assert(_expr) \
 	stroll_assert("sample:discard", _expr)
 
+#define galvsmpl_err(_format, ...) \
+	elog_err(&galvsmpl_log, _format ".", ## __VA_ARGS__)
+
 #define galvsmpl_perr(_err, _format, ...) \
 	elog_err(&galvsmpl_log, \
 	         _format ": %s (%d).", \

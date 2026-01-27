@@ -24,7 +24,7 @@ solibs             := libgalv.so
 libgalv.so-objs    := $(addprefix shared/,$(libgalv-objects))
 libgalv.so-cflags  := $(shared-common-cflags)
 libgalv.so-ldflags := $(shared-common-ldflags)
-libgalv.so-pkgconf := $(common-pkgconf)
+libgalv.so-pkgconf := $(common-pkgconf) libetux_timer_list
 
 arlibs             := libgalv.a
 libgalv.a-objs     := $(addprefix static/,$(libgalv-objects))

@@ -13,21 +13,11 @@
 
 struct sockaddr;
 
-extern struct galv_conn *
-galv_coupler_create_conn(struct galv_coupler * __restrict coupler,
-                         int                              flags)
-	__export_public;
-
 extern int
-galv_coupler_connect_conn(const struct galv_coupler * __restrict coupler,
-                          struct galv_conn * __restrict          connection,
-                          const struct sockaddr * __restrict     peer,
-                          const struct upoll * __restrict        poller)
-	__export_public;
-
-extern int
-galv_coupler_destroy_conn(const struct galv_coupler * __restrict coupler,
-                          struct galv_conn * __restrict          connection)
+galv_coupler_connect(struct galv_coupler * __restrict   coupler,
+                     const struct sockaddr * __restrict peer,
+                     int                                flags,
+                     const struct upoll * __restrict    poller)
 	__export_public;
 
 extern void

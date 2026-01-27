@@ -273,6 +273,22 @@ galv_conn_poll(struct galv_conn * __restrict   connection,
 }
 
 void
+galv_conn_unpoll(struct galv_conn * __restrict   connection,
+                 const struct upoll * __restrict poller)
+{
+	galv_conn_assert_api(connection);
+	galv_assert_api(connection->fd >= 0);
+	galv_assert_api(poller);
+
+	if (connection->work.dispatch) {
+		galv_assert_api(connection->state >= GALV_CONN_BINDING_STATE);
+
+		upoll_unregister(poller, connection->fd);
+		connection->work.dispatch = NULL;
+	}
+}
+
+void
 galv_conn_setup(struct galv_conn * __restrict           connection,
                 int                                     fd,
                 const struct galv_conn_ops * __restrict operations,
@@ -289,23 +305,6 @@ galv_conn_setup(struct galv_conn * __restrict           connection,
 	connection->work.dispatch = NULL;
 	connection->dispatch = dispatcher;
 	connection->link = GALV_CONN_FLOWING_LINK;
-	stroll_dlist_init(&connection->repo);
-}
-
-void
-galv_conn_unpoll(struct galv_conn * __restrict   connection,
-                 const struct upoll * __restrict poller)
-{
-	galv_conn_assert_api(connection);
-	galv_assert_api(connection->fd >= 0);
-	galv_assert_api(poller);
-
-	if (connection->work.dispatch) {
-		galv_assert_api(connection->state >= GALV_CONN_BINDING_STATE);
-
-		upoll_unregister(poller, connection->fd);
-		connection->work.dispatch = NULL;
-	}
 }
 
 static

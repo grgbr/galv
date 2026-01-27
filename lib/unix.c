@@ -195,7 +195,7 @@ galv_unix_binder_on_connected(
 	struct galv_conn * __restrict         connection)
 {
 	galv_binder_assert_intern(binder);
-	galv_unix_assert_conn_api((struct galv_unix_conn *)connection);
+	galv_conn_assert_intern(connection);
 
 	struct galv_unix_conn *       unc = (struct galv_unix_conn *)connection;
 	const struct galv_unix_addr * addr = &unc->peer.addr;
@@ -222,7 +222,7 @@ galv_unix_binder_destroy_conn(struct galv_binder * __restrict binder,
                               struct galv_conn * __restrict   connection)
 {
 	galv_binder_assert_intern(binder);
-	galv_unix_assert_conn_api((struct galv_unix_conn *)connection);
+	galv_conn_assert_api(connection);
 
 	int                           ret;
 #if defined(CONFIG_GALV_DEBUG)

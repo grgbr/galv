@@ -6,6 +6,7 @@
 #define _GALV_CONN_H
 
 #include <galv/cdefs.h>
+#include <galv/timer.h>
 #include <utils/sock.h>
 #include <utils/poll.h>
 #include <stroll/dlist.h>
@@ -84,6 +85,7 @@ struct galv_conn {
 	enum galv_conn_link          link;
 	struct galv_dispatch *       dispatch;
 	void *                       ctx;
+	struct galv_timer            timer;
 	struct stroll_dlist_node     repo;
 };
 

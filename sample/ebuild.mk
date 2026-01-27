@@ -32,7 +32,7 @@ galv-smpl-echo-clnt-objs    := $(call kconf_enabled,GALV_SMPL_ECHO_CLNT, \
                                                     echo_clnt.o)
 galv-smpl-echo-clnt-cflags  := $(common-cflags)
 galv-smpl-echo-clnt-ldflags := $(smpl-ldflags)
-galv-smpl-echo-clnt-pkgconf := libelog libutils
+galv-smpl-echo-clnt-pkgconf := libelog libutils libetux_timer_list
 
 bins                        += $(call kconf_enabled,GALV_SMPL_ECHO_SRV, \
                                                     galv-smpl-echo-srv)
