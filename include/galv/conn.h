@@ -199,6 +199,20 @@ galv_conn_apply_watch(struct galv_conn * __restrict   connection,
 	upoll_apply(poller, connection->fd, &connection->work);
 }
 
+static inline
+void
+galv_conn_reset_watch(struct galv_conn * __restrict   connection,
+                      const struct upoll * __restrict poller,
+                      uint32_t                        events)
+{
+	galv_conn_assert_api(connection);
+	galv_assert_api(connection->fd >= 0);
+	galv_assert_api(connection->state != GALV_CONN_CLOSED_STATE);
+
+	upoll_setup_watch(&connection->work, events);
+	upoll_apply(poller, connection->fd, &connection->work);
+}
+
 extern int
 galv_conn_on_send_shut(struct galv_conn * __restrict   connection,
                        uint32_t                        events,

@@ -1,22 +1,44 @@
+INTEGRATE ME
 struct galv_timer {
 	struct etux_timer    base;
 	int                  tries;
 	int                  msecs;
-	const struct upoll * poll;
 };
 
+#define galv_timer_assert_api(_tmr) \
+	galv_assert_api(_tmr); \
+	galv_assert_api((_tmr)->msecs); \
+	galv_timer_assert_api(!!timer->tries || \
+	                      !etux_timer_is_armed(&(_tmr)->base))
+
 static inline
-int
-galv_timer_arm(struct galv_timer * __restrict timer)
+void
+galv_timer_is_armed(const struct galv_timer * __restrict timer)
 {
 	galv_timer_assert_api(timer);
 
-	if (!timer->tries)
-		return -ETIMEDOUT;
+	return etux_timer_is_armed(&timer->base);
+}
+
+static inline
+bool
+galv_timer_defunct(const struct galv_timer * __restrict timer)
+{
+	galv_timer_assert_api(timer);
+
+	return !timer->tries;
+}
+
+static inline
+void
+galv_timer_arm(struct galv_timer * __restrict timer)
+{
+	galv_timer_assert_api(timer);
+	galv_assert_api(timer->tries);
 
 	etux_timer_arm_msec(&timer->base, timer->msecs);
-
-	return 0;
+	if (timer->tries > 0)
+		timer->tries--;
 }
 
 static inline
@@ -40,7 +62,6 @@ galv_timer_setup(struct galv_timer * __restrict timer,
 	galv_assert_api(msecs > 0);
 
 	etux_timer_init(&timer->base, expire);
-	timer->poll = poller;
 	timer->tries = tries;
 	timer->msecs = msecs;
 }

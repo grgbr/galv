@@ -15,6 +15,7 @@ struct galv_binder_ops;
 
 struct galv_binder {
 	const struct galv_binder_ops * ops;
+	int                            sock_type;
 	struct stroll_falloc           alloc;
 };
 

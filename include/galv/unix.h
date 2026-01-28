@@ -40,6 +40,7 @@ galv_unix_make_named_addr(struct galv_unix_addr * __restrict address,
 
 extern void
 galv_unix_binder_open(struct galv_binder * __restrict binder,
+                      int                             sock_type,
                       unsigned int                    max_conn)
 	__export_public;
 

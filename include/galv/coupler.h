@@ -24,8 +24,7 @@ extern void
 galv_coupler_setup(struct galv_coupler * __restrict        coupler,
 	           struct galv_binder * __restrict         binder,
 	           struct galv_repo * __restrict           repo,
-	           const struct galv_conn_ops * __restrict operations,
-	           int                                     type)
+	           const struct galv_conn_ops * __restrict operations)
 	__export_public;
 
 #endif /* _GALV_COUPLER_H */

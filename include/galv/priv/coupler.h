@@ -19,7 +19,6 @@ struct galv_coupler {
 	struct galv_binder *         bind;
 	struct galv_repo *           repo;
 	const struct galv_conn_ops * conn_ops;
-	int                          conn_type;
 };
 
 #endif /* _GALV_PRIV_COUPLER_H */
