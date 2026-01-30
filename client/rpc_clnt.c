@@ -319,6 +319,7 @@ galv_rpc_clnt_push_msg(struct galv_rpc_clnt_msg * __restrict message)
 out:
 	ret = message->hndl(message, ret, message->ctx);
 	switch (ret) {
+	case 0:
 	case -EINTR:
 	case -ENOMEM:
 	case -ENFILE:
