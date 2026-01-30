@@ -276,12 +276,7 @@ int
 galv_unix_binder_destroy_clnt(struct galv_binder * __restrict binder,
                               struct galv_conn * __restrict   client)
 {
-	int                           ret;
-#if defined(CONFIG_GALV_DEBUG)
-	const struct galv_unix_conn * clnt = (const struct galv_unix_conn *)
-	                                     client;
-	struct galv_unix_endpt        peer = clnt->peer;
-#endif /* defined(CONFIG_GALV_DEBUG) */
+	int ret;
 
 	ret = unsk_close(client->fd);
 	if (ret && (ret != -EINTR))
@@ -291,7 +286,8 @@ galv_unix_binder_destroy_clnt(struct galv_binder * __restrict binder,
 
 	stroll_falloc_free(&binder->alloc, client);
 
-	galv_unix_conn_debug(&peer, "client connection destroyed");
+	galv_unix_conn_debug(&((const struct galv_unix_conn *)client)->peer,
+	                     "client connection destroyed");
 
 	return ret;
 }
@@ -433,12 +429,7 @@ galv_unix_adopt_destroy_conn(struct galv_adopt * __restrict adopter,
 	galv_unix_assert_adopt_api((const struct galv_unix_adopt *)adopter);
 	galv_conn_assert_intern(connection);
 
-	int                           ret;
-#if defined(CONFIG_GALV_DEBUG)
-	const struct galv_unix_conn * unc = (const struct galv_unix_conn *)
-	                                    connection;
-	struct galv_unix_endpt        peer = unc->peer;
-#endif /* defined(CONFIG_GALV_DEBUG) */
+	int ret;
 
 	ret = unsk_close(connection->fd);
 	if (ret && (ret != -EINTR))
@@ -447,7 +438,8 @@ galv_unix_adopt_destroy_conn(struct galv_adopt * __restrict adopter,
 		                     "");
 	stroll_falloc_free(&adopter->alloc, connection);
 
-	galv_unix_conn_debug(&peer, "service connection destroyed");
+	galv_unix_conn_debug(&((const struct galv_unix_conn *)connection)->peer,
+	                     "service connection destroyed");
 
 	return ret;
 }

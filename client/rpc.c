@@ -245,9 +245,10 @@ galv_rpc_clnt_send_msg(struct galv_rpc_clnt_msg * __restrict message)
 	size_t                  left = sizeof(*head) + message->busy;
 	ssize_t                 ret;
 
-	head->flags = ((uint8_t)GALV_SESS_HEAD_LAST_MULTI <<
-	               GALV_SESS_HEAD_MULTI_FLAG_BIT) |
-	              ((uint8_t)message->type << GALV_SESS_HEAD_TYPE_FLAG_BIT);
+	head->flags = (uint8_t)
+	              ((GALV_SESS_HEAD_LAST_MULTI <<
+	                GALV_SESS_HEAD_MULTI_FLAG_BIT) |
+	               (message->type << GALV_SESS_HEAD_TYPE_FLAG_BIT));
 	head->xchg = 0;
 	head->size = (uint16_t)message->busy - 1;
 
