@@ -1,5 +1,5 @@
 #include "../lib/common.h"
-#include "rpc.h"
+#include <galv/rpc_clnt.h>
 #include <utils/unsk.h>
 #include <dpack/codec.h>
 

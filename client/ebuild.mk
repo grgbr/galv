@@ -7,7 +7,7 @@
 
 include ../common.mk
 
-libgalv-objects         := $(call kconf_enabled,GALV_RPC,rpc.o)
+libgalv-objects         := $(call kconf_enabled,GALV_RPC,rpc_clnt.o)
 
 solibs                  := libgalv_clnt.so
 libgalv_clnt.so-objs    := $(addprefix shared/,$(libgalv-objects))

@@ -32,6 +32,7 @@ headers         += $(call kconf_enabled,GALV_RPC,galv/rpc.h)
 subdirs         := lib
 
 ifeq ($(CONFIG_GALV_CLNT),y)
+headers         += $(call kconf_enabled,GALV_RPC,galv/rpc_clnt.h)
 subdirs         += client
 endif # ($(CONFIG_GALV_CLNT),y)
 
