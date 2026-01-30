@@ -147,6 +147,7 @@ galv_rpc_clnt_create_request(struct galv_rpc_clnt * __restrict rpc,
 	if (!rpc->msg) {
 		struct galv_rpc_clnt_msg * req;
 		struct galv_sess_head *    head;
+		int                        err;
 
 		req = malloc(sizeof(*req));
 		if (!req)
@@ -163,6 +164,13 @@ galv_rpc_clnt_create_request(struct galv_rpc_clnt * __restrict rpc,
 		req->ctx = context;
 		req->off = sizeof(*head);
 		req->busy = 0;
+
+		err = dpack_encode_uint32(&req->enc, id);
+		if (err) {
+			free(req);
+			errno = -err;
+			return NULL;
+		}
 
 		rpc->msg = req;
 
@@ -249,15 +257,19 @@ galv_rpc_clnt_send_msg(struct galv_rpc_clnt_msg * __restrict message)
 	struct galv_rpc_clnt *  clnt = message->clnt;
 	struct galv_sess_head * head = (struct galv_sess_head *)message->buff;
 	size_t                  off = 0;
-	size_t                  left = sizeof(*head) + message->busy;
+	size_t                  left;
 	ssize_t                 ret;
+
+	left = galv_rpc_clnt_encoder_used(&message->enc);
 
 	head->flags = (uint8_t)
 	              ((GALV_SESS_HEAD_LAST_MULTI <<
 	                GALV_SESS_HEAD_MULTI_FLAG_BIT) |
 	               (message->type << GALV_SESS_HEAD_TYPE_FLAG_BIT));
 	head->xchg = 0;
-	head->size = (uint16_t)message->busy - 1;
+	head->size = (uint16_t)left - 1;
+
+	left += sizeof(*head);
 
 	do {
 		ret = etux_sock_send(clnt->fd,
