@@ -11,12 +11,13 @@ config-obj      := config.o
 
 HEADERDIR       := $(CURDIR)/include
 headers         := galv/cdefs.h
+headers         += galv/priv/timer.h
+headers         += galv/priv/dispatch.h
 headers         += galv/accept.h
 headers         += galv/priv/adopt.h
-headers         += galv/coupler.h
-headers         += galv/priv/dispatch.h
-headers         += galv/priv/coupler.h
-headers         += galv/priv/binder.h
+headers         += $(call kconf_enabled,GALV_COUPLER,galv/coupler.h)
+headers         += $(call kconf_enabled,GALV_COUPLER,galv/priv/coupler.h)
+headers         += $(call kconf_enabled,GALV_COUPLER,galv/priv/binder.h)
 headers         += galv/conn.h
 headers         += galv/repo.h
 headers         += $(call kconf_enabled,GALV_GATE,galv/gate.h)
@@ -29,6 +30,10 @@ headers         += $(call kconf_enabled,GALV_SESS,galv/priv/session.h)
 headers         += $(call kconf_enabled,GALV_RPC,galv/rpc.h)
 
 subdirs         := lib
+
+ifeq ($(CONFIG_GALV_CLNT),y)
+subdirs         += client
+endif # ($(CONFIG_GALV_CLNT),y)
 
 ifeq ($(CONFIG_GALV_UTEST),y)
 subdirs         += test

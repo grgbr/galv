@@ -109,6 +109,13 @@ config GALV_RPC
 	help
 	  Build Galv library with rpc support.
 
+config GALV_CLNT
+	bool "Client"
+
+config GALV_COUPLER
+	bool "Asynchronous connector"
+	depends on GALV_CLNT
+
 config GALV_SMPL
 	bool "Sample code"
 	default n
@@ -127,6 +134,7 @@ config GALV_SMPL_ECHO_CLNT
 	bool "Echo client sample code"
 	depends on GALV_SMPL
 	select GALV_UNIX
+	select GALV_COUPLER
 	default n
 	help
 	  Build Galv library with echo client usage sample code.

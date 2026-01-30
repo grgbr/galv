@@ -1,9 +1,10 @@
+#include "../lib/common.h"
 #include "rpc.h"
 #include <utils/unsk.h>
 #include <dpack/codec.h>
 
 static inline
-struct galv_rpc_msg *
+struct galv_rpc_clnt_msg *
 galv_rpc_clnt_msg_from_dec(const struct dpack_decoder * __restrict decoder)
 {
 	return containerof(decoder, struct galv_rpc_clnt_msg, dec);
@@ -27,7 +28,6 @@ galv_rpc_clnt_decoder_read(struct dpack_decoder * __restrict decoder,
                            size_t                            size)
 {
 	struct galv_rpc_clnt_msg * msg = galv_rpc_clnt_msg_from_dec(decoder);
-	ssize_t                    ret;
 
 	if (size > msg->busy)
 		return -ENODATA;
@@ -138,10 +138,10 @@ galv_rpc_clnt_prep_reply(struct galv_rpc_clnt_msg * message)
 }
 
 struct galv_rpc_clnt_msg *
-galv_rpc_clnt_create_request(struct galv_rpc_clnt_conn * __restrict rpc,
-                             uint32_t                               id,
-                             galv_rpc_fn *                          handler,
-                             void *                                 context)
+galv_rpc_clnt_create_request(struct galv_rpc_clnt * __restrict rpc,
+                             uint32_t                          id,
+                             galv_rpc_clnt_fn *                handler,
+                             void *                            context)
 {
 	if (!rpc->msg) {
 		struct galv_rpc_clnt_msg * req;
@@ -152,8 +152,8 @@ galv_rpc_clnt_create_request(struct galv_rpc_clnt_conn * __restrict rpc,
 			return NULL;
 
 		req->clnt = rpc;
-		dpack_encoder_init(&message->enc, &galv_rpc_clnt_encoder_ops);
-		dpack_decoder_init(&message->dec,
+		dpack_encoder_init(&req->enc, &galv_rpc_clnt_encoder_ops);
+		dpack_decoder_init(&req->dec,
 		                   &galv_rpc_clnt_decoder_ops,
 		                   DPACK_DECODER_NODISC);
 		req->type = GALV_SESS_HEAD_REQUEST_TYPE;
@@ -176,19 +176,19 @@ galv_rpc_clnt_create_request(struct galv_rpc_clnt_conn * __restrict rpc,
 
 static
 int
-galv_rpc_clnt_recv_msg(struct galv_rpc_clnt * __restrict client)
+galv_rpc_clnt_recv_msg(struct galv_rpc_clnt_msg * __restrict message)
 {
-	struct galv_rpc_clnt_msg * msg = client->msg;
-	struct galv_sess_head      head;
-	size_t                     off = 0;
-	size_t                     left = sizeof(head);
-	ssize_t                    ret;
+	galv_assert_api(message);
+	galv_assert_api(message == message->clnt->msg);
 
-	if (!msg)
-		return 0;
+	struct galv_rpc_clnt * clnt = message->clnt;
+	struct galv_sess_head  head;
+	size_t                 off = 0;
+	size_t                 left = sizeof(head);
+	ssize_t                ret;
 
 	do {
-		ret = etux_sock_recv(client->fd,
+		ret = etux_sock_recv(clnt->fd,
 		                     &((uint8_t *)&head)[off],
 		                     left,
 		                     0);
@@ -201,7 +201,7 @@ galv_rpc_clnt_recv_msg(struct galv_rpc_clnt * __restrict client)
 			break;
 	} while (left);
 	if (ret < 0)
-		return ret;
+		return (int)ret;
 
 	if (head.flags !=
 	    ((GALV_SESS_HEAD_LAST_MULTI << GALV_SESS_HEAD_MULTI_FLAG_BIT) |
@@ -212,15 +212,15 @@ galv_rpc_clnt_recv_msg(struct galv_rpc_clnt * __restrict client)
 		return -EPROTO;
 
 	left = head.size + 1;
-	if ((sizeof(head) + left) > sizeof(msg->buff))
+	if ((sizeof(head) + left) > sizeof(message->buff))
 		return -EMSGSIZE;
 
-	msg->off = 0;
-	msg->busy = left;
+	message->off = 0;
+	message->busy = left;
 
 	off = 0;
 	do {
-		ret = etux_sock_recv(client->fd, &msg->buff[off], left, 0);
+		ret = etux_sock_recv(clnt->fd, &message->buff[off], left, 0);
 		galv_assert_intern(ret);
 		if (ret > 0) {
 			off += (size_t)ret;
@@ -230,7 +230,7 @@ galv_rpc_clnt_recv_msg(struct galv_rpc_clnt * __restrict client)
 			break;
 	} while (left);
 
-	return (ret < 0) ? ret : 0;
+	return (ret < 0) ? (int)ret : 0;
 }
 
 static
@@ -239,22 +239,21 @@ galv_rpc_clnt_send_msg(struct galv_rpc_clnt_msg * __restrict message)
 {
 	galv_assert_api(message == message->clnt->msg);
 
-	struct galv_rpc_clnt *        clnt = message->clnt;
-	const struct galv_sess_head * head = (struct galv_sess_head *)
-	                                     message->buff;
-	size_t                        off = 0;
-	size_t                        left = sizeof(*head) + message->busy;
-	ssize_t                       ret;
+	struct galv_rpc_clnt *  clnt = message->clnt;
+	struct galv_sess_head * head = (struct galv_sess_head *)message->buff;
+	size_t                  off = 0;
+	size_t                  left = sizeof(*head) + message->busy;
+	ssize_t                 ret;
 
-	head->flags = (GALV_SESS_HEAD_LAST_MULTI <<
+	head->flags = ((uint8_t)GALV_SESS_HEAD_LAST_MULTI <<
 	               GALV_SESS_HEAD_MULTI_FLAG_BIT) |
-	              (message->type << GALV_SESS_HEAD_TYPE_FLAG_BIT);
+	              ((uint8_t)message->type << GALV_SESS_HEAD_TYPE_FLAG_BIT);
 	head->xchg = 0;
-	head->size = message->busy - 1;
+	head->size = (uint16_t)message->busy - 1;
 
 	do {
 		ret = etux_sock_send(clnt->fd,
-		                     &clnt->buff[off],
+		                     &message->buff[off],
 		                     left,
 		                     MSG_NOSIGNAL);
 		galv_assert_intern(ret);
@@ -266,7 +265,7 @@ galv_rpc_clnt_send_msg(struct galv_rpc_clnt_msg * __restrict message)
 			break;
 	} while (left);
 
-	return (ret < 0) ? ret : 0;
+	return (ret < 0) ? (int)ret : 0;
 }
 
 int
@@ -318,19 +317,19 @@ galv_rpc_clnt_connect(struct galv_rpc_clnt *     client,
                       const struct sockaddr_un * peer,
                       socklen_t                  size)
 {
-	return unsk_connect(client->sk, peer, size);
+	return unsk_connect(client->fd, peer, size);
 }
 
 int
-galv_rpc_clnt_open(struct galv_rpc_clnt * client)
+galv_rpc_clnt_open(struct galv_rpc_clnt * client, int flags)
 {
 	int sk;
 
-	sk = unsk_open(binder->sock_type, SOCK_NONBLOCK | flags);
+	sk = unsk_open(SOCK_STREAM, flags);
 	if (sk < 0)
 		return sk;
 
-	client->sk = sk;
+	client->fd = sk;
 	client->msg = NULL;
 
 	return 0;
@@ -339,5 +338,5 @@ galv_rpc_clnt_open(struct galv_rpc_clnt * client)
 void
 galv_rpc_clnt_close(struct galv_rpc_clnt * client)
 {
-	unsk_close(client->sk);
+	unsk_close(client->fd);
 }

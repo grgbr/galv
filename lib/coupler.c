@@ -538,8 +538,6 @@ galv_coupler_expire_binding(struct etux_timer * __restrict timer)
 	galv_coupler_term_bind(couple, ret, clnt, poller);
 }
 
-REFACTOR ME with timer expiry and dispatching
-
 int
 galv_coupler_connect(struct galv_coupler * __restrict   coupler,
                      struct galv_conn * __restrict      client,
@@ -561,28 +559,26 @@ galv_coupler_connect(struct galv_coupler * __restrict   coupler,
 		galv_binder_on_connected(coupler->bind, clnt);
 		ret = galv_conn_poll(clnt, poller, 0, galv_coupler_dispatch);
 		if (ret) {
-			galv_assert_intern((ret == -ENOMEM) || (ret == -ENOSPC))
-			/* TODO: log debug */
-			return ret;
+			msg = "failed to poll";
+			goto err;
 		}
 
 		galv_conn_repo_register(coupler->repo, clnt);
 		ret = galv_conn_on_connect(clnt, EPOLLIN | EPOLLOUT, poller);
-		if (!ret) {
+		switch (ret) {
+		case 0:
 			galv_assert_api(galv_conn_watched(clnt));
 			return 0;
-		}
 
-		switch (ret) {
 		case -ENOMEM:  /* No more memory. */
 		case -ENOBUFS: /* Custom allocator failure */
 			/* TODO: log debug message except for ENOMEM. */
 			galv_coupler_term_bind(couple, clnt, poller);
-			return ret;
+			goto err;
 
-		case -EINTR:   /* Interrupted by a signal before completion. */
+		case -EINTR:   /* Signal occured before completion. */
 		default:
-			/* TODO: log debug message. */
+			break;
 		}
 
 		goto rebind;
@@ -598,9 +594,8 @@ galv_coupler_connect(struct galv_coupler * __restrict   coupler,
 		                     EPOLLOUT,
 		                     galv_coupler_dispatch);
 		if (ret) {
-			galv_assert_intern((ret == -ENOMEM) || (ret == -ENOSPC))
-			/* TODO: log debug */
-			return ret;
+			msg = "failed to poll";
+			goto err;
 		}
 
 		galv_conn_repo_register(coupler->repo, clnt);
@@ -616,9 +611,8 @@ galv_coupler_connect(struct galv_coupler * __restrict   coupler,
 		                     0,
 		                     galv_coupler_dispatch);
 		if (ret) {
-			galv_assert_intern((ret == -ENOMEM) || (ret == -ENOSPC))
-			/* TODO: log debug */
-			return ret;
+			msg = "failed to poll";
+			goto err;
 		}
 		goto register;
 
@@ -657,6 +651,14 @@ rebind:
 	                 msecs);
 
 	return -EINPROGRESS;
+
+err:
+	if (ret != -ENOMEM)
+		galv_ratelim_pnotice(ret,
+		                     "coupler: cannot connect client",
+		                     ": %s",
+		                     msg);
+	return ret;
 }
 
 struct galv_conn *

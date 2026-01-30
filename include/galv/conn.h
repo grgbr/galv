@@ -5,8 +5,7 @@
 #ifndef _GALV_CONN_H
 #define _GALV_CONN_H
 
-#include <galv/cdefs.h>
-#include <galv/timer.h>
+#include <galv/priv/timer.h>
 #include <utils/sock.h>
 #include <utils/poll.h>
 #include <stroll/dlist.h>

@@ -2,6 +2,7 @@
 #define _GALV_SYNC_RPC_H
 
 #include <galv/session.h>
+#include <dpack/codec.h>
 
 struct galv_rpc_clnt;
 struct galv_rpc_clnt_msg;
@@ -63,15 +64,15 @@ galv_rpc_clnt_msg_context(const struct galv_rpc_clnt_msg * __restrict message)
 }
 
 struct galv_rpc_clnt {
-	int                        sk;
+	int                        fd;
 	struct galv_rpc_clnt_msg * msg;
 };
 
 extern struct galv_rpc_clnt_msg *
-galv_rpc_clnt_create_request(struct galv_rpc_clnt_conn * __restrict rpc,
-                             uint32_t                               id,
-	                     galv_rpc_fn *                          handle,
-                             void *                                 context)
+galv_rpc_clnt_create_request(struct galv_rpc_clnt * __restrict rpc,
+                             uint32_t                          id,
+	                     galv_rpc_clnt_fn *                handle,
+                             void *                            context)
 	__export_public;
 
 extern int
@@ -80,6 +81,20 @@ galv_rpc_clnt_push_msg(struct galv_rpc_clnt_msg * __restrict message)
 
 extern void
 galv_rpc_clnt_msg_drop(struct galv_rpc_clnt_msg * __restrict message)
+	__export_public;
+
+extern int
+galv_rpc_clnt_connect(struct galv_rpc_clnt *     client,
+                      const struct sockaddr_un * peer,
+                      socklen_t                  size)
+	__export_public;
+
+extern int
+galv_rpc_clnt_open(struct galv_rpc_clnt * client, int flags)
+	__export_public;
+
+extern void
+galv_rpc_clnt_close(struct galv_rpc_clnt * client)
 	__export_public;
 
 #endif /* _GALV_SYNC_RPC_H */

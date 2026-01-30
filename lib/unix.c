@@ -78,7 +78,7 @@ _galv_unix_binder_connect_clnt(
 	galv_assert_intern(addr->data.sun_family == AF_UNIX);
 	galv_assert_intern(unsk_is_named_addr(&addr->data, addr->size));
 
-	ret = unsk_connect(client->fd, &addr->data, addr->size);
+	ret = unsk_connect(client->base.fd, &addr->data, addr->size);
 	galv_assert_intern(ret <= 0);
 	if (!ret)
 		return 0;
@@ -440,7 +440,7 @@ galv_unix_adopt_destroy_conn(struct galv_adopt * __restrict adopter,
 	struct galv_unix_endpt        peer = unc->peer;
 #endif /* defined(CONFIG_GALV_DEBUG) */
 
-	ret = unsk_close(client->fd);
+	ret = unsk_close(connection->fd);
 	if (ret && (ret != -EINTR))
 		galv_ratelim_pnotice(-ret,
 		                     "unix: failed to close service socket",
