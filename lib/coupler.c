@@ -538,6 +538,24 @@ galv_coupler_expire_binding(struct etux_timer * __restrict timer)
 	galv_coupler_term_bind(couple, ret, clnt, poller);
 }
 
+static
+int
+galv_coupler_poll_clnt(struct galv_conn * __restrict   client,
+                       uint32_t                        events,
+                       const struct upoll * __restrict poller)
+{
+	int err;
+
+	err = galv_conn_poll(client, poller, events, galv_coupler_dispatch);
+	if (!err) {
+		galv_conn_switch_state(clnt, GALV_CONN_BINDING_STATE);
+		galv_conn_repo_register(coupler->repo, clnt);
+		return 0;
+	}
+
+	return err;
+}
+
 int
 galv_coupler_connect(struct galv_coupler * __restrict   coupler,
                      struct galv_conn * __restrict      client,
@@ -557,13 +575,12 @@ galv_coupler_connect(struct galv_coupler * __restrict   coupler,
 	switch (ret) {
 	case 0:
 		galv_binder_on_connected(coupler->bind, clnt);
-		ret = galv_conn_poll(clnt, poller, 0, galv_coupler_dispatch);
+		ret = galv_coupler_poll_clnt(clnt, 0, poller);
 		if (ret) {
 			msg = "failed to poll";
 			goto err;
 		}
 
-		galv_conn_repo_register(coupler->repo, clnt);
 		ret = galv_conn_on_connect(clnt, EPOLLIN | EPOLLOUT, poller);
 		switch (ret) {
 		case 0:
@@ -589,32 +606,24 @@ galv_coupler_connect(struct galv_coupler * __restrict   coupler,
 		 * asynchronous connect(2) event occurs, i.e., either in case
 		 * of success or error (timeout, connection refused, etc...)
 		 */
-		ret = galv_conn_poll(clnt,
-		                     poller,
-		                     EPOLLOUT,
-		                     galv_coupler_dispatch);
+		ret = galv_coupler_poll_clnt(clnt, EPOLLOUT, poller);
 		if (ret) {
 			msg = "failed to poll";
 			goto err;
 		}
 
-		galv_conn_repo_register(coupler->repo, clnt);
-		galv_conn_switch_state(clnt, GALV_CONN_BINDING_STATE);
 		return;
 
 	case -ECONNREFUSED:
 		/* No remote peer is listening. */
 	case -ETIMEDOUT:
 		/*  Timeout while attempting connection (server busy ?). */
-		ret = galv_conn_poll(clnt,
-		                     poller,
-		                     0,
-		                     galv_coupler_dispatch);
+		ret = galv_coupler_poll_clnt(clnt, 0, poller);
 		if (ret) {
 			msg = "failed to poll";
 			goto err;
 		}
-		goto register;
+		goto rebind;
 
 	case -EINTR:
 		/* Interrupted by a signal before connect(2) started. */
@@ -641,8 +650,6 @@ galv_coupler_connect(struct galv_coupler * __restrict   coupler,
 
 	return ret;
 
-register:
-	galv_conn_repo_register(coupler->repo, clnt);
 rebind:
 	galv_conn_switch_state(clnt, GALV_CONN_BINDING_STATE);
 	galv_timer_setup(&clnt->timer,

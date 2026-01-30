@@ -2,6 +2,7 @@
 #include <galv/rpc_clnt.h>
 #include <utils/unsk.h>
 #include <dpack/codec.h>
+#include <dpack/scalar.h>
 
 static inline
 struct galv_rpc_clnt_msg *
@@ -192,10 +193,13 @@ galv_rpc_clnt_recv_msg(struct galv_rpc_clnt_msg * __restrict message)
 		                     &((uint8_t *)&head)[off],
 		                     left,
 		                     0);
-		galv_assert_intern(ret);
 		if (ret > 0) {
 			off += (size_t)ret;
 			left -= (size_t)ret;
+		}
+		else if (!ret) {
+			ret = -ECONNREFUSED;
+			break;
 		}
 		else if (ret != -EINTR)
 			break;
@@ -221,10 +225,13 @@ galv_rpc_clnt_recv_msg(struct galv_rpc_clnt_msg * __restrict message)
 	off = 0;
 	do {
 		ret = etux_sock_recv(clnt->fd, &message->buff[off], left, 0);
-		galv_assert_intern(ret);
 		if (ret > 0) {
 			off += (size_t)ret;
 			left -= (size_t)ret;
+		}
+		else if (!ret) {
+			ret = -ECONNREFUSED;
+			break;
 		}
 		else if (ret != -EINTR)
 			break;
@@ -274,14 +281,30 @@ galv_rpc_clnt_push_msg(struct galv_rpc_clnt_msg * __restrict message)
 {
 	galv_assert_api(message->type == GALV_SESS_HEAD_REQUEST_TYPE);
 
-	int ret;
+	int      ret;
+	uint32_t id;
 
 	ret = galv_rpc_clnt_send_msg(message);
-	if (!ret) {
-		galv_rpc_clnt_prep_reply(message);
-		ret = galv_rpc_clnt_recv_msg(message);
+	if (ret)
+		goto out;
+
+	galv_rpc_clnt_prep_reply(message);
+	ret = galv_rpc_clnt_recv_msg(message);
+	if (ret)
+		goto out;
+
+	ret = dpack_decode_uint32(&message->dec, &id);
+	if (ret)
+		goto out;
+
+	if (id != message->id) {
+		ret = -EPROTO;
+		goto out;
 	}
 
+	ret = 0;
+
+out:
 	ret = message->hndl(message, ret, message->ctx);
 	switch (ret) {
 	case -EINTR:
