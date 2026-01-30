@@ -64,6 +64,7 @@ galv_unix_make_named_addr(struct galv_unix_addr * __restrict address,
 /******************************************************************************
  * Unix (client-side) connection binder handling
  ******************************************************************************/
+#if 0
 
 static
 int
@@ -324,7 +325,7 @@ galv_unix_binder_close(struct galv_binder * __restrict binder)
 
 	galv_debug("unix: binder closed");
 }
-
+#endif
 /******************************************************************************
  * UNIX (service-side) socket adopter handling
  ******************************************************************************/
