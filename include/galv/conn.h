@@ -125,9 +125,18 @@ void *
 galv_conn_context(const struct galv_conn * __restrict connection)
 {
 	galv_conn_assert_api(connection);
-	galv_assert_api(connection->state != GALV_CONN_CLOSED_STATE);
 
 	return connection->ctx;
+}
+
+static inline
+void
+galv_conn_set_context(struct galv_conn * __restrict connection,
+                      void * __restrict             context)
+{
+	galv_conn_assert_api(connection);
+
+	connection->ctx = context;
 }
 
 static inline
@@ -170,6 +179,7 @@ galv_conn_watch(struct galv_conn * __restrict connection,
 	galv_conn_assert_api(connection);
 	galv_assert_api(connection->fd >= 0);
 	galv_assert_api(connection->state != GALV_CONN_CLOSED_STATE);
+	galv_assert_api(!(events & ~GALV_CONN_POLL_VALID_EVENTS));
 
 	upoll_enable_watch(&connection->work, events);
 }
@@ -182,6 +192,7 @@ galv_conn_unwatch(struct galv_conn * __restrict connection,
 	galv_conn_assert_api(connection);
 	galv_assert_api(connection->fd >= 0);
 	galv_assert_api(connection->state != GALV_CONN_CLOSED_STATE);
+	galv_assert_api(!(events & ~GALV_CONN_POLL_VALID_EVENTS));
 
 	upoll_disable_watch(&connection->work, events);
 }
@@ -207,6 +218,7 @@ galv_conn_reset_watch(struct galv_conn * __restrict   connection,
 	galv_conn_assert_api(connection);
 	galv_assert_api(connection->fd >= 0);
 	galv_assert_api(connection->state != GALV_CONN_CLOSED_STATE);
+	galv_assert_api(!(events & ~GALV_CONN_POLL_VALID_EVENTS));
 
 	upoll_setup_watch(&connection->work, events);
 	upoll_apply(poller, connection->fd, &connection->work);
@@ -375,23 +387,12 @@ galv_conn_recvmsg(struct galv_conn * __restrict connection,
 	return -ECONNREFUSED;
 }
 
-/**
- * @return A non zero number of bytes sent upon success, a negative `errno`
- *         like code otherwise.
- * @retval -ENOMEM No more memory available
- * @retval -ENOSPC Maximum system number of per-user (UID) pollable file
- *         descriptors reached (see @man{epoll_ctl(2)} and @man{epoll(7)})
- */
 extern int
-galv_conn_poll(struct galv_conn * __restrict   connection,
-               const struct upoll * __restrict poller,
-               uint32_t                        events,
-               void * __restrict               context)
-	__export_public;
-
-extern void
-galv_conn_unpoll(struct galv_conn * __restrict   connection,
-                 const struct upoll * __restrict poller)
+galv_conn_connect(struct galv_conn * __restrict   connection,
+                  struct sockaddr * __restrict    peer,
+                  int                             retries,
+                  int                             msecs,
+                  const struct upoll * __restrict poller)
 	__export_public;
 
 extern int

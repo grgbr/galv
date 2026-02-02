@@ -10,7 +10,7 @@
 void
 galv_timer_setup(struct galv_timer * __restrict timer,
                  etux_timer_expire_fn *         expire,
-                 unsigned int                   tries,
+                 int                            tries,
                  int                            msecs)
 {
 	galv_assert_api(timer);

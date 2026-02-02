@@ -19,12 +19,12 @@ struct galv_timer {
 
 #define galv_timer_assert_api(_tmr) \
 	galv_assert_api(_tmr); \
-	galv_assert_api((_tmr)->msecs); \
+	galv_assert_api(!(_tmr)->tries || ((_tmr)->msecs > 0)); \
 	galv_assert_api(!!(_tmr)->tries || !etux_timer_is_armed(&(_tmr)->base))
 
 static inline
 bool
-galv_timer_is_armed(const struct galv_timer * __restrict timer)
+galv_timer_armed(const struct galv_timer * __restrict timer)
 {
 	galv_timer_assert_api(timer);
 
@@ -46,6 +46,7 @@ galv_timer_arm(struct galv_timer * __restrict timer)
 {
 	galv_timer_assert_api(timer);
 	galv_assert_api(timer->tries);
+	galv_assert_api(timer->msecs > 0);
 
 	etux_timer_arm_msec(&timer->base, timer->msecs);
 	if (timer->tries > 0)
@@ -60,5 +61,11 @@ galv_timer_cancel(struct galv_timer * __restrict timer)
 
 	etux_timer_cancel(&timer->base);
 }
+
+extern void
+galv_timer_setup(struct galv_timer * __restrict timer,
+                 etux_timer_expire_fn *         expire,
+                 int                            tries,
+                 int                            msecs);
 
 #endif /* _GALV_PRIV_TIMER_H */

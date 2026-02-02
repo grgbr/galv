@@ -3,6 +3,8 @@ Implement
 
 * galv_sess_close(), galv_sess_halt() galv_sess_ignore() ?
 * specialize rpc client vs service xfer callback
+* use a per coupler/binder/acceptor/adopter/connection ratelim logger variable
+* make a galv_coupler_reconnect()/galv_clnt_reconnect() API
 
 Testing
 =======

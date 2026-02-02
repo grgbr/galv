@@ -183,109 +183,27 @@ galv_conn_dispatch(struct upoll_worker * worker,
 	return ret;
 }
 
-static
 int
-galv_conn_enable_dispatch(struct galv_conn * __restrict   connection,
-                          const struct upoll * __restrict poller,
-                          uint32_t                        events,
-                          upoll_dispatch_fn *             dispatch)
-{
-	galv_conn_assert_intern(connection);
-	galv_assert_intern(connection->fd >= 0);
-	galv_assert_intern(connection->state != GALV_CONN_CLOSING_STATE);
-	galv_assert_intern(poller);
-	galv_assert_intern(events);
-	galv_assert_intern(!(events & ~GALV_CONN_POLL_VALID_EVENTS));
-	galv_assert_intern(dispatch);
-
-	if (!connection->work.dispatch) {
-		/* This connection has not been registered for polling yet. */
-		galv_assert_intern(connection->state <=
-		                   GALV_CONN_CONNECTING_STATE);
-
-		int ret;
-
-		ret = upoll_register_dispatch(poller,
-		                              connection->fd,
-		                              events,
-		                              &connection->work,
-		                              dispatch);
-		if (ret) {
-			galv_assert_intern((ret == -ENOMEM) ||
-			                   (ret == -ENOSPC));
-			return ret;
-		}
-	}
-	else {
-		/*
-		 * This connection has already been registered: just reset
-		 * polling event mask.
-		 */
-		connection->work.dispatch = dispatch;
-		upoll_setup_watch(&connection->work, events);
-		upoll_apply(poller, connection->fd, &connection->work);
-	}
-
-	return 0;
-}
-
-int
-galv_conn_bind(struct galv_conn * __restrict   connection,
-               const struct upoll * __restrict poller,
-               upoll_dispatch_fn *             dispatch)
-{
-	galv_conn_assert_intern(connection);
-	galv_assert_intern(connection->fd >= 0);
-	galv_assert_intern(connection->state != GALV_CONN_CLOSING_STATE);
-	galv_assert_intern(poller);
-	galv_assert_intern(dispatch);
-
-	connection->state = GALV_CONN_BINDING_STATE;
-
-	return galv_conn_enable_dispatch(connection,
-	                                 poller,
-	                                 EPOLLOUT,
-	                                 dispatch);
-}
-
-int
-galv_conn_poll(struct galv_conn * __restrict   connection,
-               const struct upoll * __restrict poller,
-               uint32_t                        events,
-               void * __restrict               context)
+galv_conn_connect(struct galv_conn * __restrict   connection,
+                  struct sockaddr * __restrict    peer,
+                  int                             retries,
+                  int                             msecs,
+                  const struct upoll * __restrict poller)
 {
 	galv_conn_assert_api(connection);
 	galv_assert_api(connection->fd >= 0);
-	galv_assert_api(connection->state >= GALV_CONN_CONNECTING_STATE);
-	galv_assert_api(poller);
-	galv_assert_api(events);
-	galv_assert_api(!(events & ~GALV_CONN_POLL_VALID_EVENTS));
-
-	int ret;
-
-	ret = galv_conn_enable_dispatch(connection,
-	                                poller,
-	                                events,
-	                                galv_conn_dispatch);
-	connection->ctx = context;
-
-	return ret;
-}
-
-void
-galv_conn_unpoll(struct galv_conn * __restrict   connection,
-                 const struct upoll * __restrict poller)
-{
-	galv_conn_assert_api(connection);
-	galv_assert_api(connection->fd >= 0);
+	galv_assert_api(connection->state == GALV_CONN_CLOSED_STATE);
+	galv_assert_api(peer);
+	galv_assert_api(retries);
+	galv_assert_api(!retries || (msecs > 0));
 	galv_assert_api(poller);
 
-	if (connection->work.dispatch) {
-		galv_assert_api(connection->state >= GALV_CONN_BINDING_STATE);
-
-		upoll_unregister(poller, connection->fd);
-		connection->work.dispatch = NULL;
-	}
+	return galv_coupler_connect((struct galv_coupler *)connection->dispatch,
+	                            connection,
+	                            peer,
+	                            poller,
+	                            retries,
+	                            msecs);
 }
 
 void
@@ -303,8 +221,9 @@ galv_conn_setup(struct galv_conn * __restrict           connection,
 	connection->state = GALV_CONN_CLOSED_STATE;
 	connection->fd = fd;
 	connection->work.dispatch = NULL;
-	connection->dispatch = dispatcher;
 	connection->link = GALV_CONN_FLOWING_LINK;
+	connection->dispatch = dispatcher;
+	connection->ctx = NULL;
 }
 
 static

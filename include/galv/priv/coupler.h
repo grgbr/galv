@@ -13,6 +13,7 @@
 struct galv_binder;
 struct galv_repo;
 struct galv_conn_ops;
+struct sockaddr;
 
 struct galv_coupler {
 	struct galv_dispatch         base;
@@ -20,5 +21,12 @@ struct galv_coupler {
 	struct galv_repo *           repo;
 	const struct galv_conn_ops * conn_ops;
 };
+
+extern int
+galv_coupler_connect(struct galv_coupler * __restrict   coupler,
+                     const struct sockaddr * __restrict peer,
+                     int                                flags,
+                     const struct upoll * __restrict    poller)
+	__export_public;
 
 #endif /* _GALV_PRIV_COUPLER_H */

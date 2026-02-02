@@ -11,15 +11,6 @@
 #include <galv/priv/coupler.h>
 #include <galv/conn.h>
 
-struct sockaddr;
-
-extern int
-galv_coupler_connect(struct galv_coupler * __restrict   coupler,
-                     const struct sockaddr * __restrict peer,
-                     int                                flags,
-                     const struct upoll * __restrict    poller)
-	__export_public;
-
 extern void
 galv_coupler_setup(struct galv_coupler * __restrict        coupler,
 	           struct galv_binder * __restrict         binder,

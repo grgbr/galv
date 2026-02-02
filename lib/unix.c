@@ -64,7 +64,6 @@ galv_unix_make_named_addr(struct galv_unix_addr * __restrict address,
 /******************************************************************************
  * Unix (client-side) connection binder handling
  ******************************************************************************/
-#if 0
 
 static
 int
@@ -157,7 +156,8 @@ static
 int
 galv_unix_binder_reconnect_clnt(
 	const struct galv_binder * __restrict binder __unused,
-	struct galv_conn * __restrict         client)
+	struct galv_conn * __restrict         client,
+	const struct upoll * __restrict       poller)
 {
 	galv_assert_intern((binder->sock_type == SOCK_STREAM) ||
 	                   (binder->sock_type == SOCK_SEQPACKET));
@@ -189,9 +189,16 @@ galv_unix_binder_reconnect_clnt(
 		goto err;
 	}
 
-	/* ... then close the old one to keep a valid file descriptor in
+	/*
+	 *  ... then close the old one to keep a valid file descriptor in
 	 * `client->fd' in case of failure.
+	 *
+	 * In addition, we *MUST* also remove the old file descriptor from the
+	 * epoll(7) interest list.
+	 * See section `Questions and answers' of epoll(7) man page to
+	 * understand why.
 	 */
+	upoll_unregister(poller, client->fd);
 	unsk_close(client->fd);
 	client->fd = ret;
 
@@ -325,7 +332,7 @@ galv_unix_binder_close(struct galv_binder * __restrict binder)
 
 	galv_debug("unix: binder closed");
 }
-#endif
+
 /******************************************************************************
  * UNIX (service-side) socket adopter handling
  ******************************************************************************/
