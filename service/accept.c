@@ -7,6 +7,134 @@
 
 #include "accept.h"
 
+/******************************************************************************/
+/******************************************************************************/
+/******************************************************************************/
+/******************************************************************************/
+
+static
+int
+galv_conn_process_connecting(struct galv_conn * __restrict connection,
+                             uint32_t                      events,
+                             const struct upoll *          poller)
+{
+	galv_assert_intern(connection);
+	galv_assert_intern(events);
+	galv_assert_intern(poller);
+
+	int ret;
+
+	if (!(events & (EPOLLHUP | EPOLLRDHUP)))
+		ret = galv_conn_on_may_xfer(connection, events, poller);
+	else
+		ret = galv_conn_close(connection, poller);
+
+	return ret;
+}
+
+static
+int
+galv_conn_process_established(struct galv_conn * __restrict connection,
+                              uint32_t                      events,
+                              const struct upoll *          poller)
+{
+	galv_assert_intern(connection);
+	galv_assert_intern(events);
+	galv_assert_intern(poller);
+
+	int ret;
+
+	if (events & EPOLLHUP)
+		ret = galv_conn_on_send_shut(connection, events, poller);
+	else if (events & EPOLLRDHUP)
+		ret = galv_conn_on_recv_shut(connection, events, poller);
+	else
+		ret = galv_conn_on_may_xfer(connection, events, poller);
+
+	return ret;
+}
+
+static
+int
+galv_conn_process_closing(struct galv_conn * __restrict connection,
+                          uint32_t                      events,
+                          const struct upoll *          poller)
+{
+	galv_assert_intern(connection);
+	galv_assert_intern(events);
+	galv_assert_intern(poller);
+
+	int ret = 0;
+
+	if (events & EPOLLHUP)
+		ret = galv_conn_close(connection, poller);
+	else if (events & EPOLLRDHUP)
+		ret = galv_conn_on_recv_shut(connection, events, poller);
+	else
+		ret = galv_conn_on_may_xfer(connection, events, poller);
+
+	return ret;
+}
+
+static
+int
+galv_conn_dispatch(struct upoll_worker * worker,
+                   uint32_t              events,
+                   const struct upoll *  poller)
+{
+	galv_assert_intern(worker);
+	galv_assert_intern(poller);
+	galv_assert_intern(events);
+	galv_assert_intern(!(events & ~GALV_CONN_POLL_VALID_EVENTS));
+
+	struct galv_conn * conn;
+	int                ret;
+
+	conn = galv_conn_from_worker(worker);
+	galv_conn_assert_intern(conn);
+	galv_assert_intern(conn->state != GALV_CONN_CLOSED_STATE);
+	galv_assert_intern(conn->fd >= 0);
+	galv_assert_intern(conn->work.dispatch);
+	galv_assert_intern(conn->dispatch);
+
+	if (events & EPOLLERR) {
+		ret = galv_conn_on_error(conn,
+		                         galv_conn_async_error(conn),
+		                         events,
+		                         poller);
+		if (ret)
+			return ret;
+
+		events &= ~((uint32_t)(EPOLLERR));
+	}
+
+	switch (galv_conn_state(conn)) {
+	case GALV_CONN_ESTABLISHED_STATE:
+		ret = galv_conn_process_established(conn, events, poller);
+		break;
+
+	case GALV_CONN_CONNECTING_STATE:
+		ret = galv_conn_process_connecting(conn, events, poller);
+		break;
+
+	case GALV_CONN_CLOSING_STATE:
+		ret = galv_conn_process_closing(conn, events, poller);
+		break;
+
+	case GALV_CONN_BINDING_STATE:
+	case GALV_CONN_CLOSED_STATE:
+	default:
+		galv_assert_intern(0);
+	}
+
+	return ret;
+}
+
+/******************************************************************************/
+/******************************************************************************/
+/******************************************************************************/
+/******************************************************************************/
+
 static inline
 struct galv_accept *
 galv_accept_from_worker(const struct upoll_worker * __restrict worker)
@@ -82,12 +210,21 @@ galv_accept_on_conn_request(struct galv_accept * __restrict acceptor,
 	if (!conn)
 		return -errno;
 
-	ret = galv_conn_on_connect(conn, EPOLLIN | EPOLLOUT, poller);
-	if (!ret || (ret == -EINTR)) {
-		galv_conn_repo_register(acceptor->repo, conn);
-		return ret;
-	}
+	ret = galv_conn_poll(conn, poller, 0, galv_conn_dispatch);
+	if (ret)
+		goto destroy;
 
+	ret = galv_conn_on_connect(conn, EPOLLIN | EPOLLOUT, poller);
+	if (ret && (ret != -EINTR))
+		goto unpoll;
+
+	galv_conn_repo_register(acceptor->repo, conn);
+
+	return ret;
+
+unpoll:
+	galv_conn_unpoll(conn, poller);
+destroy:
 	galv_adopt_destroy_conn(acceptor->adopt, conn);
 
 	return ret;
@@ -108,6 +245,7 @@ galv_accept_on_conn_term(struct galv_dispatch * __restrict dispatcher,
 	int                  ret;
 
 	galv_conn_repo_unregister(accept->repo, connection);
+	galv_conn_unpoll(connection, poller);
 	ret = galv_adopt_destroy_conn(accept->adopt, connection);
 
 	upoll_enable_watch(&accept->work, EPOLLIN);

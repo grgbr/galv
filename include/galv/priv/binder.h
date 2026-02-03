@@ -11,6 +11,10 @@
 #include <galv/cdefs.h>
 #include <stroll/falloc.h>
 
+#if !defined(CONFIG_GALV_CLNT)
+#error Cannot include binder headers with client build configuration disabled !
+#endif /* !defined(CONFIG_GALV_CLNT) */
+
 struct galv_binder_ops;
 
 struct galv_binder {

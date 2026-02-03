@@ -5,11 +5,11 @@
  * Copyright (C) 2017-2025 Grégor Boirie <gregor.boirie@free.fr>
  ******************************************************************************/
 
-#ifndef _GALV_LIB_DISPATCH_H
-#define _GALV_LIB_DISPATCH_H
+#ifndef _GALV_COMMON_DISPATCH_H
+#define _GALV_COMMON_DISPATCH_H
 
+#include "common/conn.h"
 #include "galv/priv/dispatch.h"
-#include "conn.h"
 
 #define galv_dispatch_assert_api(_dispatch) \
 	galv_assert_api(_dispatch); \
@@ -33,4 +33,4 @@ galv_dispatch_on_conn_term(struct galv_dispatch * __restrict dispatch,
 	return dispatch->on_conn_term(dispatch, connection, poller);
 }
 
-#endif /* _GALV_LIB_DISPATCH_H */
+#endif /* _GALV_COMMON_DISPATCH_H */

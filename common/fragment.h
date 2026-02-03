@@ -5,10 +5,10 @@
 * Copyright (C) 2017-2025 Grégor Boirie <gregor.boirie@free.fr>
 *******************************************************************************/
 
-#ifndef _GALV_LIB_FRAGMENT_H
-#define _GALV_LIB_FRAGMENT_H
+#ifndef _GALV_COMMON_FRAGMENT_H
+#define _GALV_COMMON_FRAGMENT_H
 
-#include "buffer.h"
+#include "common/buffer.h"
 #include <galv/priv/fragment.h>
 
 /**
@@ -187,4 +187,4 @@ galv_frag_fini_list(struct galv_frag_list * __restrict list)
 	galv_assert_api(galv_frag_list_empty(list));
 }
 
-#endif /* _GALV_LIB_FRAGMENT_H */
+#endif /* _GALV_COMMON_FRAGMENT_H */

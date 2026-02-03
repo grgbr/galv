@@ -26,7 +26,7 @@
 
 #if defined(CONFIG_GALV_LOG)
 
-extern struct elog * galv_logger;
+extern struct elog * galv_logger __export_public;
 
 #define galv_log(_severity, _format, ...) \
 	do { \

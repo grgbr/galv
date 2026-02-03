@@ -39,14 +39,22 @@ config GALV_UTEST
 	help
 	  Build Galv library unit test suite.
 
+config GALV_CLNT
+	bool "Client support"
+
+config GALV_SVC
+	bool "Service support"
+
 config GALV_GATE
-	bool "Connection gate"
+	bool "Service connection gate"
+	depends on GALV_SVC
 	default n
 	help
 	  Build Galv library with socket connection filtering support.
 
 config GALV_UNIX
 	bool "Unix socket connection"
+	select GALV_GATE if GALV_SVC
 	default y
 	help
 	  Build Galv library with Unix socket based connection support.
@@ -109,13 +117,6 @@ config GALV_RPC
 	help
 	  Build Galv library with rpc support.
 
-config GALV_CLNT
-	bool "Client"
-
-config GALV_COUPLER
-	bool "Asynchronous connector"
-	depends on GALV_CLNT
-
 config GALV_SMPL
 	bool "Sample code"
 	default n
@@ -125,6 +126,7 @@ config GALV_SMPL
 config GALV_SMPL_DISC_SRV
 	bool "Discard server sample code"
 	depends on GALV_SMPL
+	select GALV_SVC
 	select GALV_UNIX
 	default n
 	help
@@ -133,8 +135,8 @@ config GALV_SMPL_DISC_SRV
 config GALV_SMPL_ECHO_CLNT
 	bool "Echo client sample code"
 	depends on GALV_SMPL
+	select GALV_CLNT
 	select GALV_UNIX
-	select GALV_COUPLER
 	default n
 	help
 	  Build Galv library with echo client usage sample code.
@@ -142,6 +144,7 @@ config GALV_SMPL_ECHO_CLNT
 config GALV_SMPL_ECHO_SRV
 	bool "Echo server sample code"
 	depends on GALV_SMPL
+	select GALV_SVC
 	select GALV_UNIX
 	default n
 	help
@@ -150,6 +153,7 @@ config GALV_SMPL_ECHO_SRV
 config GALV_SMPL_SESS_SRV
 	bool "Session sample code"
 	depends on GALV_SMPL
+	select GALV_SVC
 	select GALV_UNIX
 	select GALV_SESS
 	default n

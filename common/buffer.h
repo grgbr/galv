@@ -5,9 +5,10 @@
 * Copyright (C) 2017-2025 Grégor Boirie <gregor.boirie@free.fr>
 *******************************************************************************/
 
-#ifndef _GALV_LIB_BUFFER_H
-#define _GALV_LIB_BUFFER_H
+#ifndef _GALV_COMMON_BUFFER_H
+#define _GALV_COMMON_BUFFER_H
 
+#include "common/common.h"
 #include <galv/buffer.h>
 
 #define galv_buff_assert_intern(_buff) \
@@ -17,4 +18,4 @@
 	galv_assert_intern(stroll_buff_capacity(&(_buff)->base) <= \
 	                   stroll_falloc_chunk_size((_buff)->alloc))
 
-#endif /* _GALV_LIB_BUFFER_H */
+#endif /* _GALV_COMMON_BUFFER_H */

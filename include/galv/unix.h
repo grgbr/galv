@@ -37,7 +37,11 @@ galv_unix_make_named_addr(struct galv_unix_addr * __restrict address,
 /******************************************************************************
  * UNIX (client-side) connection binder handling
  ******************************************************************************/
-#if 0
+
+#if defined(CONFIG_GALV_CLNT)
+
+#include <galv/priv/binder.h>
+
 extern void
 galv_unix_binder_open(struct galv_binder * __restrict binder,
                       int                             sock_type,
@@ -47,7 +51,9 @@ galv_unix_binder_open(struct galv_binder * __restrict binder,
 extern void
 galv_unix_binder_close(struct galv_binder * __restrict binder)
 	__export_public;
-#endif
+
+#endif /* defined(CONFIG_GALV_CLNT) */
+
 /******************************************************************************
  * UNIX (service-side) socket adopter handling
  ******************************************************************************/

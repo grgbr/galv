@@ -10,6 +10,10 @@
 
 #include <galv/priv/dispatch.h>
 
+#if !defined(CONFIG_GALV_CLNT)
+#error Cannot include coupler headers with client build configuration disabled !
+#endif /* !defined(CONFIG_GALV_CLNT) */
+
 struct galv_binder;
 struct galv_repo;
 struct galv_conn_ops;

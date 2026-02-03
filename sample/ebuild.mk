@@ -12,34 +12,34 @@ smpl-ldflags := \
 	-L$(BUILDDIR)/../lib \
 	-Wl,-whole-archive $(BUILDDIR)/builtin_smpl.a -Wl,-no-whole-archive \
 	-Wl,-z,start-stop-visibility=hidden \
-	-lgalv
+	-Wl,--push-state,--as-needed -lgalv_common -Wl,--pop-state
 
-builtins               := builtin_smpl.a
-builtin_smpl.a-objs    := common.o
-builtin_smpl.a-cflags  := $(common-cflags)
+builtins                    := builtin_smpl.a
+builtin_smpl.a-objs         := common.o
+builtin_smpl.a-cflags       := $(common-cflags)
 
 bins                        += $(call kconf_enabled,GALV_SMPL_DISC_SRV, \
                                                     galv-smpl-disc-srv)
 galv-smpl-disc-srv-objs     := $(call kconf_enabled,GALV_SMPL_DISC_SRV, \
                                                     disc_srv.o)
 galv-smpl-disc-srv-cflags   := $(common-cflags)
-galv-smpl-disc-srv-ldflags  := $(smpl-ldflags)
+galv-smpl-disc-srv-ldflags  := $(smpl-ldflags) -lgalv_svc
 galv-smpl-disc-srv-pkgconf  := libelog libutils
 
 bins                        += $(call kconf_enabled,GALV_SMPL_ECHO_CLNT, \
                                                     galv-smpl-echo-clnt)
 galv-smpl-echo-clnt-objs    := $(call kconf_enabled,GALV_SMPL_ECHO_CLNT, \
                                                     echo_clnt.o)
-galv-smpl-echo-clnt-cflags  := $(common-cflags)
+galv-smpl-echo-clnt-cflags  := $(common-cflags) -lgalv_clnt
 galv-smpl-echo-clnt-ldflags := $(smpl-ldflags)
-galv-smpl-echo-clnt-pkgconf := libelog libutils libetux_timer_list
+galv-smpl-echo-clnt-pkgconf := libelog libutils
 
 bins                        += $(call kconf_enabled,GALV_SMPL_ECHO_SRV, \
                                                     galv-smpl-echo-srv)
 galv-smpl-echo-srv-objs     := $(call kconf_enabled,GALV_SMPL_ECHO_SRV, \
                                                     echo_srv.o)
 galv-smpl-echo-srv-cflags   := $(common-cflags)
-galv-smpl-echo-srv-ldflags  := $(smpl-ldflags)
+galv-smpl-echo-srv-ldflags  := $(smpl-ldflags) -lgalv_svc
 galv-smpl-echo-srv-pkgconf  := libelog libutils
 
 bins                        += $(call kconf_enabled,GALV_SMPL_SESS_SRV, \
@@ -47,7 +47,7 @@ bins                        += $(call kconf_enabled,GALV_SMPL_SESS_SRV, \
 galv-smpl-sess-srv-objs     := $(call kconf_enabled,GALV_SMPL_SESS_SRV, \
                                                     sess_srv.o)
 galv-smpl-sess-srv-cflags   := $(common-cflags)
-galv-smpl-sess-srv-ldflags  := $(smpl-ldflags)
+galv-smpl-sess-srv-ldflags  := $(smpl-ldflags) -lgalv_svc
 galv-smpl-sess-srv-pkgconf  := libelog libutils
 
 ifeq ($(CONFIG_GALV_SMPL_ECHO_CLNT),y)

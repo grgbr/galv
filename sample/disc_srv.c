@@ -7,7 +7,9 @@
 
 #include "common.h"
 #include "galv/unix.h"
+#include "galv/conn.h"
 #include "galv/accept.h"
+#include "galv/gate.h"
 
 #define GALVSMPL_DISC_PATH           "sock"
 #define GALVSMPL_DISC_BACKLOG        16
@@ -78,19 +80,12 @@ galvsmpl_disc_on_connect(struct galv_conn *   connection,
                          uint32_t             events __unused,
                          const struct upoll * poller)
 {
-	int err;
+	galv_conn_reset_watch(connection, poller, EPOLLIN);
+	galv_conn_switch_state(connection, GALV_CONN_ESTABLISHED_STATE);
 
-	err = galv_conn_poll(connection, poller, EPOLLIN, NULL);
-	if (!err) {
-		galv_conn_switch_state(connection, GALV_CONN_ESTABLISHED_STATE);
-		galvsmpl_debug("connection established");
+	galvsmpl_debug("connection established");
 
-		return 0;
-	}
-
-	galvsmpl_perr(-err, "failed to enable connection polling");
-
-	return err;
+	return 0;
 }
 
 static
@@ -117,14 +112,9 @@ galvsmpl_disc_on_recv_shut(struct galv_conn *   connection,
 
 static
 void
-galvsmpl_disc_close(struct galv_conn *   connection,
-                    const struct upoll * poller)
+galvsmpl_disc_close(struct galv_conn *   connection __unused,
+                    const struct upoll * poller __unused)
 {
-	/*
-	 * Unregister from poller since we registered at connect time, see
-	 * galvsmpl_disc_on_connect().
-	 */
-	galv_conn_unpoll(connection, poller);
 }
 
 static

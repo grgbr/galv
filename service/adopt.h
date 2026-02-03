@@ -9,9 +9,8 @@
 #define _GALV_LIB_ADOPT_H
 
 #include "galv/priv/adopt.h"
-#include "common.h"
-#include "conn.h"
 #include "gate.h"
+#include "common/conn.h"
 #include <utils/sock.h>
 
 struct galv_accept;

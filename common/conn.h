@@ -5,10 +5,10 @@
  * Copyright (C) 2017-2025 Grégor Boirie <gregor.boirie@free.fr>
  ******************************************************************************/
 
-#ifndef _GALV_LIB_CONN_H
-#define _GALV_LIB_CONN_H
+#ifndef _GALV_COMMON_CONN_H
+#define _GALV_COMMON_CONN_H
 
-#include "common.h"
+#include "common/common.h"
 #include "galv/conn.h"
 #include <stroll/palloc.h>
 
@@ -113,7 +113,9 @@ galv_conn_poll(struct galv_conn * __restrict   connection,
 {
 	galv_conn_assert_intern(connection);
 	galv_assert_intern(connection->fd >= 0);
-	galv_assert_intern(connection->state >= GALV_CONN_BINDING_STATE);
+	galv_assert_intern(connection->state != GALV_CONN_CONNECTING_STATE);
+	galv_assert_intern(connection->state != GALV_CONN_ESTABLISHED_STATE);
+	galv_assert_intern(connection->state != GALV_CONN_CLOSING_STATE);
 	galv_assert_intern(!(events & ~GALV_CONN_POLL_VALID_EVENTS));
 	galv_assert_intern(dispatch);
 
@@ -124,7 +126,7 @@ galv_conn_poll(struct galv_conn * __restrict   connection,
 	                              events,
 	                              &connection->work,
 	                              dispatch);
-	galv_assert_intern((ret == -ENOMEM) || (ret == -ENOSPC));
+	galv_assert_intern(!ret || (ret == -ENOMEM) || (ret == -ENOSPC));
 
 	return ret;
 }
@@ -146,6 +148,7 @@ extern void
 galv_conn_setup(struct galv_conn * __restrict           connection,
                 int                                     fd,
                 const struct galv_conn_ops * __restrict operations,
-                struct galv_dispatch * __restrict       dispatcher);
+                struct galv_dispatch * __restrict       dispatcher)
+	__export_public;
 
-#endif /* _GALV_LIB_CONN_H */
+#endif /* _GALV_COMMON_CONN_H */

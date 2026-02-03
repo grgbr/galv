@@ -9,10 +9,10 @@
 #define _GALV_LIB_ACCEPT_H
 
 #include "galv/accept.h"
-#include "dispatch.h"
-#include "repo.h"
 #include "adopt.h"
-#include "conn.h"
+#include "common/dispatch.h"
+#include "common/repo.h"
+#include "common/conn.h"
 
 #define galv_accept_assert_api(_accept) \
 	galv_assert_api(_accept); \

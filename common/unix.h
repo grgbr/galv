@@ -5,14 +5,11 @@
  * Copyright (C) 2017-2025 Grégor Boirie <gregor.boirie@free.fr>
  ******************************************************************************/
 
-#ifndef _GALV_LIB_UNIX_H
-#define _GALV_LIB_UNIX_H
+#ifndef _GALV_COMMON_UNIX_H
+#define _GALV_COMMON_UNIX_H
 
+#include "common/conn.h"
 #include "galv/unix.h"
-#include "conn.h"
-#include "binder.h"
-#include "adopt.h"
-#include "accept.h"
 
 #define galv_unix_assert_addr_api(_addr) \
 	galv_assert_api(_addr); \
@@ -56,23 +53,25 @@ struct galv_unix_conn {
 	galv_conn_assert_intern(&(_conn)->base); \
 	galv_unix_assert_endpt_intern(&(_conn)->peer)
 
-#define galv_unix_assert_adopt_api(_adopt) \
-	galv_assert_api(_adopt); \
-	galv_adopt_assert_api(&(_adopt)->base); \
-	galv_assert_api((_adopt)->bind_addr.size > (sizeof(sa_family_t) + 1))
+#if defined(CONFIG_GALV_DEBUG)
 
-#define galv_unix_assert_adopt_intern(_adopt) \
-	galv_assert_intern(_adopt); \
-	galv_adopt_assert_intern(&(_adopt)->base); \
-	galv_assert_intern((_adopt)->bind_addr.size > (sizeof(sa_family_t) + 1))
+struct galv_unix_endpt;
 
-#define galv_unix_assert_adopt_conf_api(_conf) \
-	galv_assert_api(_conf); \
-	galv_assert_api(((_conf)->sock_type == SOCK_STREAM) || \
-			((_conf)->sock_type == SOCK_SEQPACKET)); \
-	galv_assert_api(!((_conf)->sock_flags & \
-	                  ETUX_SOCK_ACCEPT_INVALID_FLAGS)); \
-	galv_assert_api(!unsk_is_named_path_ok((_conf)->bind_path)); \
-	galv_assert_api((_conf)->max_conn)
+extern void
+galv_unix_conn_debug(const struct galv_unix_endpt * __restrict endpoint,
+                     const char * __restrict                   message)
+	__export_public;
 
-#endif /* _GALV_LIB_UNIX_H */
+#else /* !defined(CONFIG_GALV_DEBUG) */
+
+static inline
+void
+galv_unix_conn_debug(
+	const struct galv_unix_endpt * __restrict endpoint __unused,
+	const char * __restrict                   message __unused)
+{
+}
+
+#endif /* defined(CONFIG_GALV_DEBUG) */
+
+#endif /* _GALV_COMMON_UNIX_H */

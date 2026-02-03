@@ -9,6 +9,7 @@
 #define _GALV_LIB_GATE_H
 
 #include "galv/gate.h"
+#include "common/common.h"
 
 #define galv_gate_assert_ops_intern(_ops) \
 	galv_assert_intern(_ops); \

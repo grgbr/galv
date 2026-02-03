@@ -13,14 +13,8 @@ HEADERDIR       := $(CURDIR)/include
 headers         := galv/cdefs.h
 headers         += galv/priv/timer.h
 headers         += galv/priv/dispatch.h
-headers         += galv/accept.h
-headers         += galv/priv/adopt.h
-headers         += $(call kconf_enabled,GALV_COUPLER,galv/coupler.h)
-headers         += $(call kconf_enabled,GALV_COUPLER,galv/priv/coupler.h)
-headers         += $(call kconf_enabled,GALV_COUPLER,galv/priv/binder.h)
 headers         += galv/conn.h
 headers         += galv/repo.h
-headers         += $(call kconf_enabled,GALV_GATE,galv/gate.h)
 headers         += $(call kconf_enabled,GALV_UNIX,galv/unix.h)
 headers         += $(call kconf_enabled,GALV_UNIX,galv/priv/unix.h)
 headers         += $(call kconf_enabled,GALV_BUFF,galv/buffer.h)
@@ -29,22 +23,32 @@ headers         += $(call kconf_enabled,GALV_SESS,galv/session.h)
 headers         += $(call kconf_enabled,GALV_SESS,galv/priv/session.h)
 headers         += $(call kconf_enabled,GALV_RPC,galv/rpc.h)
 
-subdirs         := lib
+subdirs         := common
+subdirs         += $(call kconf_enabled,GALV_UTEST,test)
+subdirs         += $(call kconf_enabled,GALV_SMPL,sample)
+
+ifneq ($(filter y,$(CONFIG_GALV_UTEST) $(CONFIG_GALV_SMPL)),)
+test-deps       += common
+endif # ($(filter y,$(CONFIG_GALV_UTEST) $(CONFIG_GALV_SMPL)),)
+
+ifeq ($(CONFIG_GALV_SVC),y)
+headers         += galv/accept.h
+headers         += galv/priv/adopt.h
+headers         += $(call kconf_enabled,GALV_GATE,galv/gate.h)
+subdirs         += service
+test-deps       += service
+sample-deps     += service
+endif # ($(CONFIG_GALV_SVC),y)
 
 ifeq ($(CONFIG_GALV_CLNT),y)
+headers         += galv/coupler.h
+headers         += galv/priv/coupler.h
+headers         += galv/priv/binder.h
 headers         += $(call kconf_enabled,GALV_RPC,galv/rpc_clnt.h)
 subdirs         += client
+test-deps       += client
+sample-deps     += client
 endif # ($(CONFIG_GALV_CLNT),y)
-
-ifeq ($(CONFIG_GALV_UTEST),y)
-subdirs         += test
-test-deps       := lib
-endif # ($(CONFIG_GALV_UTEST),y)
-
-ifeq ($(CONFIG_GALV_SMPL),y)
-subdirs         += sample
-sample-deps     := lib
-endif # ($(CONFIG_GALV_SMPL),y)
 
 define libgalv_pkgconf_tmpl
 prefix=$(PREFIX)

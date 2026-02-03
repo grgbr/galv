@@ -7,16 +7,43 @@
 
 include ../common.mk
 
-libgalv-objects         := $(call kconf_enabled,GALV_RPC,rpc_clnt.o)
+libgalv-clnt-cflags          := -iquote $(TOPDIR) $(common-cflags)
+libgalv-clnt-ldflags         := $(common-ldflags)
+libgalv-shared-clnt-cflags   := -iquote $(TOPDIR) $(shared-common-cflags)
+libgalv-shared-clnt-ldflags  := $(shared-common-ldflags)
 
-solibs                  := libgalv_clnt.so
-libgalv_clnt.so-objs    := $(addprefix shared/,$(libgalv-objects))
-libgalv_clnt.so-cflags  := $(shared-common-cflags)
-libgalv_clnt.so-ldflags := $(shared-common-ldflags)
-libgalv_clnt.so-pkgconf := $(common-pkgconf)
+#
+# Synchronous client libraries.
+#
 
-arlibs                  := libgalv_clnt.a
-libgalv_clnt.a-objs     := $(addprefix static/,$(libgalv-objects))
-libgalv_clnt.a-cflags   := $(common-cflags)
+libgalv-sync-clnt-objects    := $(call kconf_enabled,GALV_RPC,rpc_clnt.o)
+
+solibs                       := libgalv_sync_clnt.so
+libgalv_sync_clnt.so-objs    := $(addprefix shared/, \
+                                            $(libgalv-sync-clnt-objects))
+libgalv_sync_clnt.so-cflags  := $(libgalv-shared-clnt-cflags)
+libgalv_sync_clnt.so-ldflags := $(libgalv-shared-clnt-ldflags)
+libgalv_sync_clnt.so-pkgconf := $(common-pkgconf)
+
+arlibs                       := libgalv_sync_clnt.a
+libgalv_sync_clnt.a-objs     := $(addprefix static/, \
+                                            $(libgalv-sync-clnt-objects))
+libgalv_sync_clnt.a-cflags   := $(libgalv-clnt-cflags)
+
+#
+# Asynchronous client libraries.
+#
+
+libgalv-async-clnt-objects   := client.o \
+                                coupler.o \
+                                $(call kconf_enabled,GALV_UNIX,unix.o)
+
+solibs                       += libgalv_async_clnt.so
+libgalv_async_clnt.so-objs   := $(addprefix shared/, \
+                                            $(libgalv-async-clnt-objects))
+
+arlibs                       += libgalv_async_clnt.a
+libgalv_async_clnt.a-objs    := $(addprefix static/, \
+                                          $(libgalv-async-clnt-objects))
 
 # ex: filetype=make :
