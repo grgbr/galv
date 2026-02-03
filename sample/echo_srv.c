@@ -247,28 +247,20 @@ galvsmpl_echo_on_connect(struct galv_conn *   connection,
                          const struct upoll * poller)
 {
 	struct galvsmpl_echo * echo;
-	int                    err;
 
 	echo = malloc(sizeof(*echo));
 	if (!echo)
 		return -errno;
 
-	err = galv_conn_poll(connection, poller, EPOLLIN, echo);
-	if (!err) {
-		echo->conn = connection;
-		echo->busy = 0;
+	echo->conn = connection;
+	echo->busy = 0;
 
-		galv_conn_switch_state(connection, GALV_CONN_ESTABLISHED_STATE);
-		galvsmpl_debug("connection established");
+	galv_conn_set_context(connection, echo);
+	galv_conn_reset_watch(connection, poller, EPOLLIN);
+	galv_conn_switch_state(connection, GALV_CONN_ESTABLISHED_STATE);
+	galvsmpl_debug("connection established");
 
-		return 0;
-	}
-
-	free(echo);
-
-	galvsmpl_perr(-err, "failed to enable connection polling");
-
-	return err;
+	return 0;
 }
 
 static
@@ -310,14 +302,12 @@ galvsmpl_echo_halt(struct galv_conn *   connection,
 static
 void
 galvsmpl_echo_close(struct galv_conn *   connection,
-                    const struct upoll * poller)
+                    const struct upoll * poller __unused)
 {
 	/*
 	 * Unregister from poller since we registered at connect time, see
 	 * galvsmpl_echo_on_connect().
 	 */
-	galv_conn_unpoll(connection, poller);
-
 	free(galvsmpl_echo_from_conn(connection));
 }
 

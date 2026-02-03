@@ -16,7 +16,7 @@ galv_clnt_connect(struct galv_conn * __restrict   connection,
 {
 	galv_conn_assert_api(connection);
 	galv_assert_api(connection->fd >= 0);
-	galv_assert_api(connection->state == GALV_CONN_CLOSED_STATE);
+	galv_assert_api(connection->state == GALV_CONN_OPENED_STATE);
 	galv_assert_api(peer);
 	galv_assert_api(retries);
 	galv_assert_api(!retries || (msecs > 0));

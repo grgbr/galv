@@ -63,7 +63,7 @@ struct galv_conn_ops {
 	galv_assert_api((_ops)->on_error)
 
 enum galv_conn_state {
-	GALV_CONN_CLOSED_STATE       = 0,
+	GALV_CONN_OPENED_STATE       = 0,
 	GALV_CONN_BINDING_STATE,
 	GALV_CONN_CONNECTING_STATE,
 	GALV_CONN_ESTABLISHED_STATE,
@@ -118,7 +118,7 @@ struct galv_dispatch *
 galv_conn_dispatcher(const struct galv_conn * __restrict connection)
 {
 	galv_conn_assert_api(connection);
-	galv_assert_api(connection->state != GALV_CONN_CLOSED_STATE);
+	galv_assert_api(connection->state != GALV_CONN_OPENED_STATE);
 
 	return connection->dispatch;
 }
@@ -169,7 +169,7 @@ galv_conn_watched(const struct galv_conn * __restrict connection)
 {
 	galv_conn_assert_api(connection);
 	galv_assert_api(connection->fd >= 0);
-	galv_assert_api(connection->state != GALV_CONN_CLOSED_STATE);
+	galv_assert_api(connection->state != GALV_CONN_OPENED_STATE);
 
 	return upoll_watched_events(&connection->work);
 }
@@ -181,7 +181,7 @@ galv_conn_watch(struct galv_conn * __restrict connection,
 {
 	galv_conn_assert_api(connection);
 	galv_assert_api(connection->fd >= 0);
-	galv_assert_api(connection->state != GALV_CONN_CLOSED_STATE);
+	galv_assert_api(connection->state != GALV_CONN_OPENED_STATE);
 	galv_assert_api(!(events & ~GALV_CONN_POLL_VALID_EVENTS));
 
 	upoll_enable_watch(&connection->work, events);
@@ -194,7 +194,7 @@ galv_conn_unwatch(struct galv_conn * __restrict connection,
 {
 	galv_conn_assert_api(connection);
 	galv_assert_api(connection->fd >= 0);
-	galv_assert_api(connection->state != GALV_CONN_CLOSED_STATE);
+	galv_assert_api(connection->state != GALV_CONN_OPENED_STATE);
 	galv_assert_api(!(events & ~GALV_CONN_POLL_VALID_EVENTS));
 
 	upoll_disable_watch(&connection->work, events);
@@ -207,7 +207,7 @@ galv_conn_apply_watch(struct galv_conn * __restrict   connection,
 {
 	galv_conn_assert_api(connection);
 	galv_assert_api(connection->fd >= 0);
-	galv_assert_api(connection->state != GALV_CONN_CLOSED_STATE);
+	galv_assert_api(connection->state != GALV_CONN_OPENED_STATE);
 
 	upoll_apply(poller, connection->fd, &connection->work);
 }
@@ -220,7 +220,7 @@ galv_conn_reset_watch(struct galv_conn * __restrict   connection,
 {
 	galv_conn_assert_api(connection);
 	galv_assert_api(connection->fd >= 0);
-	galv_assert_api(connection->state != GALV_CONN_CLOSED_STATE);
+	galv_assert_api(connection->state != GALV_CONN_OPENED_STATE);
 	galv_assert_api(!(events & ~GALV_CONN_POLL_VALID_EVENTS));
 
 	upoll_setup_watch(&connection->work, events);

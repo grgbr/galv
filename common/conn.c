@@ -77,7 +77,7 @@ galv_conn_setup(struct galv_conn * __restrict           connection,
 	galv_dispatch_assert_intern(dispatcher);
 
 	connection->ops = operations;
-	connection->state = GALV_CONN_CLOSED_STATE;
+	connection->state = GALV_CONN_OPENED_STATE;
 	connection->fd = fd;
 	connection->work.dispatch = NULL;
 	connection->link = GALV_CONN_FLOWING_LINK;

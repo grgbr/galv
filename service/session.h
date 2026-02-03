@@ -5,10 +5,10 @@
  * Copyright (C) 2017-2025 Grégor Boirie <gregor.boirie@free.fr>
  ******************************************************************************/
 
-#ifndef _GALV_LIB_SESSION_H
-#define _GALV_LIB_SESSION_H
+#ifndef _GALV_SERVICE_SESSION_H
+#define _GALV_SERVICE_SESSION_H
 
-#include "common.h"
+#include "common/common.h"
 #include "galv/session.h"
 #include "accept.h"
 
@@ -60,4 +60,4 @@
 	galv_assert_intern((_ops)->xfer); \
 	galv_assert_intern((_ops)->close)
 
-#endif /*  _GALV_LIB_SESSION_H */
+#endif /*  _GALV_SERVICE_SESSION_H */

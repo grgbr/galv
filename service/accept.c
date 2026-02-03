@@ -92,7 +92,7 @@ galv_conn_dispatch(struct upoll_worker * worker,
 
 	conn = galv_conn_from_worker(worker);
 	galv_conn_assert_intern(conn);
-	galv_assert_intern(conn->state != GALV_CONN_CLOSED_STATE);
+	galv_assert_intern(conn->state != GALV_CONN_OPENED_STATE);
 	galv_assert_intern(conn->fd >= 0);
 	galv_assert_intern(conn->work.dispatch);
 	galv_assert_intern(conn->dispatch);
@@ -122,7 +122,7 @@ galv_conn_dispatch(struct upoll_worker * worker,
 		break;
 
 	case GALV_CONN_BINDING_STATE:
-	case GALV_CONN_CLOSED_STATE:
+	case GALV_CONN_OPENED_STATE:
 	default:
 		galv_assert_intern(0);
 	}

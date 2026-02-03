@@ -241,7 +241,7 @@ galv_coupler_dispatch_clnt(struct upoll_worker * worker,
 
 	clnt = galv_conn_from_worker(worker);
 	galv_conn_assert_intern(clnt);
-	galv_assert_intern(clnt->state != GALV_CONN_CLOSED_STATE);
+	galv_assert_intern(clnt->state != GALV_CONN_OPENED_STATE);
 	galv_assert_intern(clnt->fd >= 0);
 	galv_assert_intern(clnt->work.dispatch);
 	galv_assert_intern(clnt->dispatch);
@@ -267,7 +267,7 @@ galv_coupler_dispatch_clnt(struct upoll_worker * worker,
 		ret = galv_coupler_process_binding_clnt(clnt, events, poller);
 		break;
 
-	case GALV_CONN_CLOSED_STATE:
+	case GALV_CONN_OPENED_STATE:
 	default:
 		galv_assert_intern(0);
 	}
@@ -379,13 +379,13 @@ galv_coupler_term_bind(const struct galv_coupler * __restrict coupler,
 {
 	galv_coupler_assert_intern(coupler);
 	galv_conn_assert_intern(client);
-	galv_assert_intern(galv_conn_state(client) != GALV_CONN_CLOSED_STATE);
+	galv_assert_intern(galv_conn_state(client) != GALV_CONN_OPENED_STATE);
 	galv_assert_intern(!galv_timer_is_armed(galv_conn_timer(client)));
 	galv_assert_intern(poller);
 
 	galv_conn_unpoll(client, poller);
 	galv_conn_repo_unregister(coupler->repo, client);
-	galv_conn_switch_state(client, GALV_CONN_CLOSED_STATE);
+	galv_conn_switch_state(client, GALV_CONN_OPENED_STATE);
 }
 
 /*
@@ -485,7 +485,7 @@ galv_coupler_connect(struct galv_coupler * __restrict   coupler,
 {
 	galv_coupler_assert_api(coupler);
 	galv_conn_assert_api(client);
-	galv_assert_api(galv_conn_state(client) == GALV_CONN_CLOSED_STATE);
+	galv_assert_api(galv_conn_state(client) == GALV_CONN_OPENED_STATE);
 	galv_assert_api(peer);
 	galv_assert_api(poller);
 	galv_assert_api(!retries || msecs);
@@ -590,7 +590,7 @@ galv_coupler_destroy_clnt(const struct galv_coupler * __restrict coupler,
 {
 	galv_coupler_assert_api(coupler);
 	galv_conn_assert_api(client);
-	galv_assert_api(galv_conn_state(client) == GALV_CONN_CLOSED_STATE);
+	galv_assert_api(galv_conn_state(client) == GALV_CONN_OPENED_STATE);
 
 	return galv_binder_destroy_conn(coupler->bind, client);
 }

@@ -90,16 +90,19 @@ galv_frag_data(const struct galv_frag * __restrict fragment)
 extern size_t
 galv_frag_pull_head(struct galv_frag * __restrict fragment,
                     const uint8_t ** __restrict   data,
-                    size_t                        size);
+                    size_t                        size)
+	__export_public;
 
 extern size_t
 galv_frag_load(struct galv_frag * __restrict fragment,
-               struct galv_buff * __restrict buffer);
+               struct galv_buff * __restrict buffer)
+	__export_public;
 
 extern void
 galv_frag_init(struct galv_frag * __restrict fragment,
                size_t                        capacity,
-               struct galv_buff * __restrict buffer);
+               struct galv_buff * __restrict buffer)
+	__export_public;
 
 static inline
 unsigned long
