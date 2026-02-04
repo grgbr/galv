@@ -159,7 +159,7 @@ galv_conn_unpoll(struct galv_conn * __restrict   connection,
 {
 	galv_conn_assert_api(connection);
 	galv_assert_api(connection->fd >= 0);
-	galv_assert_api(connection->state >= GALV_CONN_BINDING_STATE);
+	galv_assert_intern(connection->state != GALV_CONN_OPENED_STATE);
 	galv_assert_api(poller);
 
 	upoll_unregister(poller, connection->fd);

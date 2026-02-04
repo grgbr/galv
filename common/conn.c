@@ -131,11 +131,13 @@ galv_conn_halt(struct galv_conn * __restrict   connection,
 {
 	galv_conn_assert_api(connection);
 	galv_assert_api(connection->fd >= 0);
-	galv_assert_api(connection->state >= GALV_CONN_BINDING_STATE);
+	galv_assert_api(connection->state != GALV_CONN_OPENED_STATE);
 	galv_assert_api(connection->state != GALV_CONN_CLOSING_STATE);
 
 	if (connection->state >= GALV_CONN_CONNECTING_STATE) {
+#if 0
 		connection->state = GALV_CONN_CLOSING_STATE;
+#endif
 		return connection->ops->halt(connection, poller);
 	}
 

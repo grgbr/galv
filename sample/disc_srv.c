@@ -59,6 +59,24 @@ galvsmpl_disc_bytes(struct galv_conn * connection)
 }
 
 static
+bool
+galvsmpl_disc_has_hangup(const struct galv_conn * connection,
+                         uint32_t                 events)
+{
+	if (events & EPOLLERR) {
+		galvsmpl_pwarn(galv_conn_async_error(connection),
+		               "unexpected asynchronous socket error");
+	}
+
+	if (!(events & EPOLLHUP))
+		return false;
+
+	galvsmpl_info("peer connection shut down");
+
+	return true;
+}
+
+static
 int
 galvsmpl_disc_process_closing(struct upoll_worker * worker,
                               uint32_t              events,
@@ -70,15 +88,8 @@ galvsmpl_disc_process_closing(struct upoll_worker * worker,
 	struct galv_conn * conn = galv_conn_from_worker(worker);
 	int                ret;
 
-	if (events & EPOLLERR) {
-		galvsmpl_pwarn(galv_conn_async_error(conn),
-		               "unexpected asynchronous socket error");
-	}
-
-	if (events & EPOLLHUP) {
-		galvsmpl_info("peer connection shut down");
+	if (galvsmpl_disc_has_hangup(conn, events))
 		goto close;
-	}
 
 	/* (events & EPOLLIN) */
 	ret = galvsmpl_disc_bytes(conn);
@@ -120,15 +131,8 @@ galvsmpl_disc_process_established(struct upoll_worker * worker,
 	struct galv_conn * conn = galv_conn_from_worker(worker);
 	int                ret;
 
-	if (events & EPOLLERR) {
-		galvsmpl_pwarn(galv_conn_async_error(conn),
-		               "unexpected asynchronous socket error");
-	}
-
-	if (events & EPOLLHUP) {
-		galvsmpl_info("peer connection shut down");
+	if (galvsmpl_disc_has_hangup(conn, events))
 		goto close;
-	}
 
 	if (events & EPOLLRDHUP) {
 		galvsmpl_info("shuting down incoming connection..");

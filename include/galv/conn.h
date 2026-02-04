@@ -139,6 +139,7 @@ struct galv_dispatch *
 galv_conn_dispatcher(const struct galv_conn * __restrict connection)
 {
 	galv_conn_assert_api(connection);
+	galv_assert_api(connection->fd >= 0);
 	galv_assert_api(connection->state != GALV_CONN_OPENED_STATE);
 
 	return connection->dispatch;
@@ -299,8 +300,8 @@ galv_conn_send(struct galv_conn * __restrict connection,
 #define GALV_CONN_SEND_FLAGS \
 	(MSG_DONTWAIT | MSG_EOR |MSG_MORE | MSG_NOSIGNAL | MSG_OOB)
 	galv_conn_assert_api(connection);
+	galv_assert_api(connection->state != GALV_CONN_OPENED_STATE);
 	galv_assert_api(connection->fd >= 0);
-	galv_assert_api(connection->state >= GALV_CONN_CONNECTING_STATE);
 	galv_assert_api(!(connection->link & GALV_CONN_SENDSHUT_LINK));
 	galv_assert_api(buff); /* prohibit empty packets ! */
 	galv_assert_api(size); /* prohibit empty packets ! */
