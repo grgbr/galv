@@ -21,6 +21,7 @@ galv_conn_async_error(const struct galv_conn * __restrict connection)
 	return stat;
 }
 
+#if 0
 int
 galv_conn_on_send_shut(struct galv_conn * __restrict   connection,
                        uint32_t                        events,
@@ -64,6 +65,47 @@ galv_conn_on_recv_shut(struct galv_conn * __restrict   connection,
 
 	return connection->ops->on_recv_shut(connection, events, poller);
 }
+#endif
+
+#if defined(CONFIG_GALV_ASSERT_INTERN)
+
+int
+galv_conn_invalid_dispatch(struct upoll_worker * worker,
+                           uint32_t              events,
+                           const struct upoll *  poller)
+{
+	galv_assert_intern(worker);
+	galv_assert_intern(poller);
+	galv_assert_intern(events);
+	galv_assert_intern(!(events & ~GALV_CONN_POLL_VALID_EVENTS));
+
+	struct galv_conn * conn;
+
+	conn = galv_conn_from_worker(worker);
+	galv_conn_assert_intern(conn);
+	galv_assert_intern(conn->state != GALV_CONN_OPENED_STATE);
+	galv_assert_intern(conn->fd >= 0);
+	galv_assert_intern(conn->dispatch);
+
+	stroll_assert_fail("galv",
+	                   "BUG: running invalid connection dispatcher",
+	                   __FILE__,
+	                   __LINE__,
+	                   __func__);
+}
+
+#else  /* !defined(CONFIG_GALV_ASSERT_INTERN) */
+
+static inline __noreturn
+int
+galv_conn_invalid_dispatch(struct upoll_worker * worker __unused,
+                           uint32_t              events __unused,
+                           const struct upoll *  poller __unused)
+{
+	abort();
+}
+
+#endif /* defined(CONFIG_GALV_ASSERT_INTERN) */
 
 void
 galv_conn_setup(struct galv_conn * __restrict           connection,
@@ -79,10 +121,8 @@ galv_conn_setup(struct galv_conn * __restrict           connection,
 	connection->ops = operations;
 	connection->state = GALV_CONN_OPENED_STATE;
 	connection->fd = fd;
-	connection->work.dispatch = NULL;
 	connection->link = GALV_CONN_FLOWING_LINK;
 	connection->dispatch = dispatcher;
-	connection->ctx = NULL;
 }
 
 int

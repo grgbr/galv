@@ -16,6 +16,7 @@
  * Generic connection handling
  ******************************************************************************/
 
+#if 0
 #define galv_conn_assert_ops_intern(_ops) \
 	galv_assert_intern(_ops); \
 	galv_assert_intern((_ops)->on_may_xfer); \
@@ -25,6 +26,13 @@
 	galv_assert_intern((_ops)->halt); \
 	galv_assert_intern((_ops)->close); \
 	galv_assert_intern((_ops)->on_error)
+#else
+#define galv_conn_assert_ops_intern(_ops) \
+	galv_assert_intern(_ops); \
+	galv_assert_intern((_ops)->on_bound); \
+	galv_assert_intern((_ops)->halt); \
+	galv_assert_intern((_ops)->close)
+#endif
 
 #define galv_conn_assert_intern(_conn) \
 	galv_assert_intern(_conn); \
@@ -35,6 +43,7 @@
 	galv_assert_intern((_conn)->link <= GALV_CONN_ENDED_LINK); \
 	galv_assert_intern((_conn)->dispatch)
 
+#if 0
 static inline
 int
 galv_conn_on_may_xfer(struct galv_conn * __restrict   connection,
@@ -50,34 +59,39 @@ galv_conn_on_may_xfer(struct galv_conn * __restrict   connection,
 
 	return connection->ops->on_may_xfer(connection, events, poller);
 }
+#endif
 
 static inline
 int
-galv_conn_on_connect(struct galv_conn * __restrict   connection,
-                     uint32_t                        events,
-                     const struct upoll * __restrict poller)
+galv_conn_on_bound(struct galv_conn * __restrict   connection,
+                   const struct upoll * __restrict poller)
 {
 	galv_conn_assert_intern(connection);
-	galv_assert_intern(connection->state <= GALV_CONN_BINDING_STATE);
-	galv_assert_intern(!(events &
-	                     ~((uint32_t)(EPOLLIN | EPOLLPRI | EPOLLOUT))));
+	galv_assert_intern(connection->state != GALV_CONN_CONNECTING_STATE);
+	galv_assert_intern(connection->state != GALV_CONN_ESTABLISHED_STATE);
+	galv_assert_intern(connection->state != GALV_CONN_CLOSING_STATE);
+	galv_assert_intern(connection->fd >= 0);
+	galv_assert_intern(connection->work.dispatch);
 	galv_assert_intern(poller);
 
 	int ret;
 
-	connection->state = GALV_CONN_CONNECTING_STATE;
-	ret = connection->ops->on_connect(connection, events, poller);
+	ret = connection->ops->on_bound(connection, poller);
 
 	/*
-	 * Client connection on_connect() handler must have enabled polling
+	 * Client connection on_bound() handler must have enabled polling
 	 * watches...
 	 */
 	galv_assert_api(ret <= 0);
+	galv_assert_api(connection->state < GALV_CONN_STATE_NR);
+	galv_assert_api(ret || (connection->state != GALV_CONN_OPENED_STATE));
+	galv_assert_api(ret || (connection->state != GALV_CONN_BINDING_STATE));
 	galv_assert_api(ret || galv_conn_watched(connection));
 
 	return ret;
 }
 
+#if 0
 static inline
 int
 galv_conn_on_error(struct galv_conn * __restrict   connection,
@@ -96,6 +110,13 @@ galv_conn_on_error(struct galv_conn * __restrict   connection,
 	                                 events,
 	                                 poller);
 }
+#endif
+
+extern int
+galv_conn_invalid_dispatch(struct upoll_worker * worker,
+                           uint32_t              events,
+                           const struct upoll *  poller)
+	__export_public __noreturn;
 
 /**
  * @return A non zero number of bytes sent upon success, a negative `errno`

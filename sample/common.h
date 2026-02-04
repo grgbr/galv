@@ -20,8 +20,25 @@ extern struct elog_stdio galvsmpl_log;
 	         strerror(_err), \
 	         _err)
 
+#define galvsmpl_warn(_format, ...) \
+	elog_warn(&galvsmpl_log, _format ".", ## __VA_ARGS__)
+
+#define galvsmpl_pwarn(_err, _format, ...) \
+	elog_warn(&galvsmpl_log, \
+	          _format ": %s (%d).", \
+	          ## __VA_ARGS__, \
+	          strerror(_err), \
+	          _err)
+
 #define galvsmpl_info(_format, ...) \
 	elog_info(&galvsmpl_log, _format ".", ## __VA_ARGS__)
+
+#define galvsmpl_pinfo(_err, _format, ...) \
+	elog_info(&galvsmpl_log, \
+	          _format ": %s (%d).", \
+	          ## __VA_ARGS__, \
+	          strerror(_err), \
+	          _err)
 
 #define galvsmpl_debug(_format, ...) \
 	elog_debug(&galvsmpl_log, _format ".", ## __VA_ARGS__)

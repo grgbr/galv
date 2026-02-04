@@ -20,6 +20,7 @@ struct galv_dispatch;
  * Generic connection handling
  ******************************************************************************/
 
+#if 0
 typedef int galv_conn_handle_events_fn(struct galv_conn * __restrict,
                                        uint32_t,
                                        const struct upoll * __restrict);
@@ -61,6 +62,26 @@ struct galv_conn_ops {
 	galv_assert_api((_ops)->halt); \
 	galv_assert_api((_ops)->close); \
 	galv_assert_api((_ops)->on_error)
+#else
+
+typedef int galv_conn_oper_fn(struct galv_conn * __restrict,
+                              const struct upoll * __restrict);
+
+typedef void galv_conn_close_fn(struct galv_conn * __restrict,
+                                const struct upoll * __restrict);
+
+struct galv_conn_ops {
+	galv_conn_oper_fn *  on_bound;
+	galv_conn_oper_fn *  halt;
+	galv_conn_close_fn * close;
+};
+
+#define galv_conn_assert_ops_api(_ops) \
+	galv_assert_api(_ops); \
+	galv_assert_api((_ops)->on_bound); \
+	galv_assert_api((_ops)->halt); \
+	galv_assert_api((_ops)->close)
+#endif
 
 enum galv_conn_state {
 	GALV_CONN_OPENED_STATE       = 0,
@@ -154,13 +175,15 @@ galv_conn_state(const struct galv_conn * __restrict connection)
 static inline
 void
 galv_conn_switch_state(struct galv_conn * __restrict connection,
-                       enum galv_conn_state          state)
+                       enum galv_conn_state          state,
+                       upoll_dispatch_fn *           dispatch)
 {
 	galv_conn_assert_api(connection);
 	galv_assert_api(state >= 0);
 	galv_assert_api(state < GALV_CONN_STATE_NR);
 
 	connection->state = state;
+	connection->work.dispatch = dispatch;
 }
 
 static inline
@@ -319,16 +342,16 @@ galv_conn_may_recv(const struct galv_conn * __restrict connection)
  */
 static inline
 ssize_t
-galv_conn_recv(struct galv_conn * __restrict connection,
-               void * __restrict             buff,
-               size_t                        size,
-               int                           flags)
+galv_conn_recv(const struct galv_conn * __restrict connection,
+               void * __restrict                   buff,
+               size_t                              size,
+               int                                 flags)
 {
 #define GALV_CONN_RECV_VALID_FLAGS \
 	(MSG_DONTWAIT | MSG_ERRQUEUE | MSG_OOB | MSG_PEEK | MSG_TRUNC)
 	galv_conn_assert_api(connection);
+	galv_assert_api(connection->state != GALV_CONN_OPENED_STATE);
 	galv_assert_api(connection->fd >= 0);
-	galv_assert_api(connection->state >= GALV_CONN_CONNECTING_STATE);
 	galv_assert_api(!(connection->link & GALV_CONN_RECVSHUT_LINK));
 	galv_assert_api(buff);
 	galv_assert_api(size);
@@ -364,15 +387,15 @@ galv_conn_recv(struct galv_conn * __restrict connection,
  */
 static inline
 ssize_t
-galv_conn_recvmsg(struct galv_conn * __restrict connection,
-                  struct msghdr * __restrict    msg,
-                  int                           flags)
+galv_conn_recvmsg(const struct galv_conn * __restrict connection,
+                  struct msghdr * __restrict          msg,
+                  int                                 flags)
 {
 #define GALV_CONN_RECVMSG_VALID_FLAGS \
 	(MSG_CMSG_CLOEXEC | GALV_CONN_RECV_VALID_FLAGS)
 	galv_conn_assert_api(connection);
+	galv_assert_api(connection->state != GALV_CONN_OPENED_STATE);
 	galv_assert_api(connection->fd >= 0);
-	galv_assert_api(connection->state >= GALV_CONN_CONNECTING_STATE);
 	galv_assert_api(!(connection->link & GALV_CONN_RECVSHUT_LINK));
 	galv_assert_api(msg);
 	galv_assert_api(!msg->msg_name);
@@ -387,6 +410,15 @@ galv_conn_recvmsg(struct galv_conn * __restrict connection,
 	if (ret)
 		return ret;
 
+	/*
+	 * Either:
+	 * - empty (seqpacket) payload,
+	 * - or remote peer closed its sending end, meaning that our
+	 *   local incoming stream is over.
+	 * As we cannot reliably distinguish between these 2 cases, just
+	 * probihit empty payloads and always consider this situation as
+	 * a remote peer socket closure.
+	 */
 	return -ECONNREFUSED;
 }
 

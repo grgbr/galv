@@ -7,11 +7,7 @@
 
 #include "accept.h"
 
-/******************************************************************************/
-/******************************************************************************/
-/******************************************************************************/
-/******************************************************************************/
-
+#if 0
 static
 int
 galv_conn_process_connecting(struct galv_conn * __restrict connection,
@@ -129,11 +125,7 @@ galv_conn_dispatch(struct upoll_worker * worker,
 
 	return ret;
 }
-
-/******************************************************************************/
-/******************************************************************************/
-/******************************************************************************/
-/******************************************************************************/
+#endif
 
 static inline
 struct galv_accept *
@@ -210,11 +202,11 @@ galv_accept_on_conn_request(struct galv_accept * __restrict acceptor,
 	if (!conn)
 		return -errno;
 
-	ret = galv_conn_poll(conn, poller, 0, galv_conn_dispatch);
+	ret = galv_conn_poll(conn, poller, 0, galv_conn_invalid_dispatch);
 	if (ret)
 		goto destroy;
 
-	ret = galv_conn_on_connect(conn, EPOLLIN | EPOLLOUT, poller);
+	ret = galv_conn_on_bound(conn, poller);
 	if (ret && (ret != -EINTR))
 		goto unpoll;
 
