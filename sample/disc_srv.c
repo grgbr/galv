@@ -20,7 +20,7 @@
 
 static
 int
-galvsmpl_disc_bytes(struct galv_conn * connection)
+galvsmpl_disc_recv(struct galv_conn * connection)
 {
 	unsigned int cnt = GALVSMPL_DISC_BULK_NR;
 	static char  buff[1024];
@@ -63,10 +63,9 @@ bool
 galvsmpl_disc_has_hangup(const struct galv_conn * connection,
                          uint32_t                 events)
 {
-	if (events & EPOLLERR) {
+	if (events & EPOLLERR)
 		galvsmpl_pwarn(galv_conn_async_error(connection),
 		               "unexpected asynchronous socket error");
-	}
 
 	if (!(events & EPOLLHUP))
 		return false;
@@ -92,7 +91,7 @@ galvsmpl_disc_process_closing(struct upoll_worker * worker,
 		goto close;
 
 	/* (events & EPOLLIN) */
-	ret = galvsmpl_disc_bytes(conn);
+	ret = galvsmpl_disc_recv(conn);
 	switch (ret) {
 	case 0:
 		return 0;
@@ -108,7 +107,6 @@ galvsmpl_disc_process_closing(struct upoll_worker * worker,
 		return ret;
 
 	default:
-		/* Unexpected receive failure. */
 		galvsmpl_perr(-(int)ret, "unexpected receive failure");
 	}
 
@@ -148,7 +146,7 @@ galvsmpl_disc_process_established(struct upoll_worker * worker,
 	}
 
 	/* (events & EPOLLIN) */
-	ret = galvsmpl_disc_bytes(conn);
+	ret = galvsmpl_disc_recv(conn);
 	switch (ret) {
 	case 0:
 		return 0;
@@ -211,7 +209,7 @@ static const struct galv_conn_ops galvsmpl_disc_conn_ops = {
 
 static
 int
-galvsmpl_loop(struct galv_repo *   repository, struct upoll * poller)
+galvsmpl_loop(struct galv_repo * repository, struct upoll * poller)
 {
 	struct galvsmpl_sigchan sigs;
 	int                     ret;
