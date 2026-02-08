@@ -10,8 +10,7 @@
 
 #include "galv/priv/binder.h"
 #include <stroll/page.h>
-#include "common.h"
-#include "conn.h"
+#include "common/conn.h"
 
 struct galv_coupler;
 

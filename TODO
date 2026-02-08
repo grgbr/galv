@@ -18,3 +18,6 @@ Cleanup
 remove galv_conn_dispatch() and its callees
 cleanup galv_conn_ops (and assertions intern / api)
 remove all references to on_may_xfer, on_send_shut, on_recv_shut, on_error
+make a per object type ratelim logger (conn, accept, coupler), should not be
+necessary for binder / adopter.
+implement a client reconnection strategy object ??!

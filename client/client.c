@@ -5,12 +5,14 @@
  * Copyright (C) 2017-2026 Grégor Boirie <gregor.boirie@free.fr>
  ******************************************************************************/
 
+#include "common/common.h"
 #include "galv/client.h"
+#include "galv/coupler.h"
 
 int
 galv_clnt_connect(struct galv_conn * __restrict   connection,
                   struct sockaddr * __restrict    peer,
-                  int                             retries,
+                  int                             tries,
                   int                             msecs,
                   const struct upoll * __restrict poller)
 {
@@ -18,14 +20,14 @@ galv_clnt_connect(struct galv_conn * __restrict   connection,
 	galv_assert_api(connection->fd >= 0);
 	galv_assert_api(connection->state == GALV_CONN_OPENED_STATE);
 	galv_assert_api(peer);
-	galv_assert_api(retries);
-	galv_assert_api(!retries || (msecs > 0));
+	galv_assert_api(tries);
+	galv_assert_api(!tries || (msecs > 0));
 	galv_assert_api(poller);
 
 	return galv_coupler_connect((struct galv_coupler *)connection->dispatch,
 	                            connection,
 	                            peer,
 	                            poller,
-	                            retries,
+	                            tries,
 	                            msecs);
 }

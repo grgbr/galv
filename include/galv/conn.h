@@ -101,15 +101,15 @@ enum galv_conn_link {
 };
 
 struct galv_conn {
-	const struct galv_conn_ops * ops;
-	enum galv_conn_state         state;
-	int                          fd;
-	struct upoll_worker          work;
-	enum galv_conn_link          link;
-	struct galv_dispatch *       dispatch;
-	void *                       ctx;
-	struct galv_timer            timer;
-	struct stroll_dlist_node     repo;
+	const struct galv_conn_ops *    ops;
+	enum galv_conn_state            state;
+	int                             fd;
+	struct upoll_worker             work;
+	enum galv_conn_link             link;
+	struct galv_dispatch *          dispatch;
+	void *                          ctx;
+	struct galv_timer               timer;
+	struct stroll_dlist_node        repo;
 };
 
 #define galv_conn_assert_api(_conn) \
@@ -162,6 +162,15 @@ galv_conn_set_context(struct galv_conn * __restrict connection,
 	galv_conn_assert_api(connection);
 
 	connection->ctx = context;
+}
+
+static inline
+struct galv_timer *
+galv_conn_timer(struct galv_conn * __restrict connection)
+{
+	galv_conn_assert_api(connection);
+
+	return &connection->timer;
 }
 
 static inline

@@ -23,8 +23,7 @@ libgalv-svc-objects        := accept.o \
 solibs                     := libgalv_svc.so
 libgalv_svc.so-objs        := $(addprefix shared/,$(libgalv-svc-objects))
 libgalv_svc.so-cflags      := $(libgalv-shared-svc-cflags)
-libgalv_svc.so-ldflags     := $(libgalv-shared-svc-ldflags) \
-                              -lgalv_common
+libgalv_svc.so-ldflags     := $(libgalv-shared-svc-ldflags) -lgalv_common
 libgalv_svc.so-pkgconf     := $(common-pkgconf)
 
 arlibs                     := libgalv_svc.a

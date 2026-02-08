@@ -28,9 +28,11 @@ struct galv_coupler {
 
 extern int
 galv_coupler_connect(struct galv_coupler * __restrict   coupler,
+                     struct galv_conn * __restrict      client,
                      const struct sockaddr * __restrict peer,
-                     int                                flags,
-                     const struct upoll * __restrict    poller)
+                     const struct upoll * __restrict    poller,
+                     int                                tries,
+                     int                                msecs)
 	__export_public;
 
 #endif /* _GALV_PRIV_COUPLER_H */

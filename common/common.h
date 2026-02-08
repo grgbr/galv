@@ -26,7 +26,7 @@
 
 #if defined(CONFIG_GALV_LOG)
 
-extern struct elog * galv_logger __export_public;
+extern __thread struct elog * galv_logger __export_public;
 
 #define galv_log(_severity, _format, ...) \
 	do { \
@@ -199,5 +199,12 @@ extern struct elog * galv_logger __export_public;
 	do {} while (0)
 
 #endif /* defined(CONFIG_GALV_DEBUG) */
+
+#if defined(CONFIG_GALV_PRNG)
+
+extern int
+galv_prng_max(int high);
+
+#endif /* defined(CONFIG_GALV_PRNG) */
 
 #endif /* _GALV_COMMON_H */

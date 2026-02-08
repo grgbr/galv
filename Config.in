@@ -45,6 +45,21 @@ config GALV_CLNT
 config GALV_SVC
 	bool "Service support"
 
+config GALV_PRNG
+	bool
+	default n
+	help
+	  Enable support for internal pseudo random number generator.
+
+config GALV_TIMER_BKOFF_RAND
+	bool "Randomized binary exponential backoff timer"
+	depends on GALV_CLNT
+	select GALV_PRNG
+	default y
+	help
+	  Randomize the delay given to the binary exponential backoff timer used
+	  for client reconnection logic.
+
 config GALV_GATE
 	bool "Service connection gate"
 	depends on GALV_SVC

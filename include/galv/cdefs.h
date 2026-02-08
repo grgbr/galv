@@ -19,6 +19,7 @@
 
 struct elog;
 
+/* MUST be called once per thread with a per-thread logger. */
 extern void
 galv_setup(struct elog * __restrict logger) __export_public;
 

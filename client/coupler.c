@@ -6,9 +6,10 @@
  ******************************************************************************/
 
 #include "galv/coupler.h"
-#include "dispatch.h"
 #include "binder.h"
-#include "repo.h"
+#include "bkoff.h"
+#include "common/dispatch.h"
+#include "common/repo.h"
 
 #define galv_coupler_assert_api(_coupler) \
 	galv_assert_api(_coupler); \
@@ -24,6 +25,7 @@
 	galv_repo_assert_intern((_coupler)->repo); \
 	galv_conn_assert_ops_intern((_coupler)->conn_ops)
 
+#if 0
 static
 int
 galv_coupler_process_clnt_error(struct galv_conn * __restrict client,
@@ -126,6 +128,7 @@ galv_coupler_process_closing_clnt(struct galv_conn * __restrict client,
 
 	return ret;
 }
+#endif
 
 /*
  * @return 0 in case of success, a negative errno-like value otherwise.
@@ -138,22 +141,23 @@ galv_coupler_process_binding_clnt(struct galv_conn * __restrict client,
                                   uint32_t                      events,
                                   const struct upoll *          poller)
 {
-	galv_assert_intern(client);
+	galv_conn_assert_intern(client);
 	galv_assert_intern(galv_conn_state(client) == GALV_CONN_BINDING_STATE);
 	galv_assert_intern(galv_conn_watched(client) == EPOLLOUT);
-	galv_assert_intern(galv_timer_is_armed(galv_conn_timer(client)));
+	galv_assert_intern(galv_timer_bkoff_armed(galv_conn_timer(client)));
 	galv_assert_intern(events);
-	galv_assert_intern(!(events & ~(EPOLLOUT | EPOLLHUP | EPOLLERR)));
+	galv_assert_intern(!(events &
+	                     ~((uint32_t)(EPOLLOUT | EPOLLHUP | EPOLLERR))));
 	galv_assert_intern(poller);
 
 	int                 ret;
 	struct galv_timer * tmr = galv_conn_timer(client);
 	const char *        msg;
 
-	galv_timer_cancel(tmr);
+	galv_timer_cancel_bkoff(tmr);
 
 	if (events & (EPOLLERR | EPOLLOUT)) {
-		ret = - galv_conn_async_error(conn);
+		ret = - galv_conn_async_error(client);
 		if (!ret) {
 			galv_assert_intern(!(events & EPOLLERR));
 			
@@ -286,7 +290,7 @@ galv_coupler_poll_clnt(struct galv_conn * __restrict   client,
 	galv_assert_intern(client->fd >= 0);
 	galv_assert_intern(galv_conn_state(client) == GALV_CONN_BINDING_STATE);
 	galv_assert_intern(!galv_conn_watched(client));
-	galv_assert_intern(!galv_timer_is_armed(galv_conn_timer(client)));
+	galv_assert_intern(!galv_timer_bkoff_armed(galv_conn_timer(client)));
 	galv_assert_intern(!(events & ~EPOLLOUT));
 	galv_conn_assert_intern(poller);
 
@@ -316,7 +320,7 @@ galv_coupler_reconnect_clnt(const struct galv_coupler * __restrict coupler,
 	galv_assert_intern(client->fd >= 0);
 	galv_assert_intern(galv_conn_state(client) == GALV_CONN_BINDING_STATE);
 	galv_assert_intern(!galv_conn_watched(client));
-	galv_assert_intern(!galv_timer_is_armed(galv_conn_timer(client)));
+	galv_assert_intern(!galv_timer_bkoff_armed(galv_conn_timer(client)));
 	galv_conn_assert_intern(poller);
 
 	int ret;
@@ -338,7 +342,7 @@ galv_coupler_on_bound(const struct galv_coupler * __restrict coupler,
 	galv_conn_assert_intern(client);
 	galv_assert_intern(client->fd >= 0);
 	galv_assert_intern(galv_conn_state(client) == GALV_CONN_BINDING_STATE);
-	galv_assert_intern(!galv_timer_is_armed(galv_conn_timer(client)));
+	galv_assert_intern(!galv_timer_bkoff_armed(galv_conn_timer(client)));
 	galv_assert_intern(poller);
 
 	galv_binder_on_connected(coupler->bind, client);
@@ -355,13 +359,13 @@ galv_coupler_rearm_bind(struct galv_conn * __restrict client,
 	galv_conn_assert_intern(client);
 	galv_assert_intern(client->fd >= 0);
 	galv_assert_intern(galv_conn_state(client) == GALV_CONN_BINDING_STATE);
-	galv_assert_intern(!galv_timer_is_armed(timer));
+	galv_assert_intern(!galv_timer_bkoff_armed(timer));
 	galv_assert_intern(poller);
 
 
-	if (!galv_timer_defunct(tmr)) {
+	if (!galv_timer_bkoff_defunct(tmr)) {
 		galv_conn_reset_watch(client, poller, 0);
-		galv_timer_arm(timer);
+		galv_timer_arm_bkoff(timer);
 
 		galv_debug("coupler: client reconnection scheduled");
 
@@ -380,7 +384,7 @@ galv_coupler_term_bind(const struct galv_coupler * __restrict coupler,
 	galv_coupler_assert_intern(coupler);
 	galv_conn_assert_intern(client);
 	galv_assert_intern(galv_conn_state(client) != GALV_CONN_OPENED_STATE);
-	galv_assert_intern(!galv_timer_is_armed(galv_conn_timer(client)));
+	galv_assert_intern(!galv_timer_bkoff_armed(galv_conn_timer(client)));
 	galv_assert_intern(poller);
 
 	galv_conn_unpoll(client, poller);
@@ -480,7 +484,7 @@ galv_coupler_connect(struct galv_coupler * __restrict   coupler,
                      struct galv_conn * __restrict      client,
                      const struct sockaddr * __restrict peer,
                      const struct upoll * __restrict    poller,
-                     int                                retries,
+                     int                                tries,
                      int                                msecs)
 {
 	galv_coupler_assert_api(coupler);
@@ -488,7 +492,7 @@ galv_coupler_connect(struct galv_coupler * __restrict   coupler,
 	galv_assert_api(galv_conn_state(client) == GALV_CONN_OPENED_STATE);
 	galv_assert_api(peer);
 	galv_assert_api(poller);
-	galv_assert_api(!retries || msecs);
+	galv_assert_api(!tries || msecs);
 
 	int          ret;
 	const char * msg = "failed to poll";
@@ -516,7 +520,7 @@ galv_coupler_connect(struct galv_coupler * __restrict   coupler,
 			return -ENOMEM;
 		}
 
-		if (retries)
+		if (tries)
 			goto rebind;
 		galv_coupler_term_bind(coupler, clnt, poller);
 		msg = "reconnection disabled";
@@ -535,7 +539,7 @@ galv_coupler_connect(struct galv_coupler * __restrict   coupler,
 
 	case -ECONNREFUSED: /* No remote peer is listening. */
 	case -ETIMEDOUT:    /* Connection attempt timeout (server busy ?). */
-		if (retries) {
+		if (tries) {
 			ret = galv_coupler_poll_clnt(clnt, 0, poller);
 			if (!ret)
 				goto rebind;
@@ -562,11 +566,11 @@ rebind:
 	galv_debug("coupler: client reconnection scheduled");
 differ:
 	galv_conn_switch_state(client, GALV_CONN_BINDING_STATE);
-	galv_timer_setup(galv_conn_timer(client),
-	                 galv_coupler_expire_binding,
-	                 retries,
-	                 msecs);
-	galv_timer_arm(galv_conn_timer(client));
+	galv_timer_setup_bkoff_tries(galv_conn_timer(client),
+	                             galv_coupler_expire_binding,
+	                             tries,
+	                             msecs);
+	galv_timer_arm_bkoff(galv_conn_timer(client));
 
 	return -EINPROGRESS;
 }
