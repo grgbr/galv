@@ -107,6 +107,47 @@ galv_conn_invalid_dispatch(struct upoll_worker * worker __unused,
 
 #endif /* defined(CONFIG_GALV_ASSERT_INTERN) */
 
+int
+galv_conn_poll(struct galv_conn * __restrict   connection,
+               const struct upoll * __restrict poller,
+               uint32_t                        events,
+               upoll_dispatch_fn *             dispatch)
+{
+	galv_conn_assert_intern(connection);
+	galv_assert_intern(connection->fd >= 0);
+	galv_assert_intern(!connection->poll);
+	galv_assert_intern(!(events & ~GALV_CONN_POLL_VALID_EVENTS));
+	galv_assert_intern(dispatch);
+
+	int ret;
+
+	ret = upoll_register_dispatch(poller,
+	                              connection->fd,
+	                              events,
+	                              &connection->work,
+	                              dispatch);
+	if (!ret) {
+		connection->poll = poller;
+		return 0;
+	}
+
+	galv_assert_intern(!ret || (ret == -ENOMEM) || (ret == -ENOSPC));
+
+	return ret;
+}
+
+void
+galv_conn_unpoll(struct galv_conn * __restrict connection)
+{
+	galv_conn_assert_intern(connection);
+	galv_assert_intern(connection->fd >= 0);
+
+	if (connection->poll) {
+		upoll_unregister(connection->poll, connection->fd);
+		connection->poll = NULL;
+	}
+}
+
 void
 galv_conn_setup(struct galv_conn * __restrict           connection,
                 int                                     fd,
@@ -121,6 +162,7 @@ galv_conn_setup(struct galv_conn * __restrict           connection,
 	connection->ops = operations;
 	connection->state = GALV_CONN_OPENED_STATE;
 	connection->fd = fd;
+	connection->poll = NULL;
 	connection->link = GALV_CONN_FLOWING_LINK;
 	connection->dispatch = dispatcher;
 }

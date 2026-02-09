@@ -25,7 +25,8 @@ typedef void
 
 typedef int
         galv_binder_reconnect_clnt_fn(const struct galv_binder * __restrict,
-                                      struct galv_conn * __restrict);
+                                      struct galv_conn * __restrict,
+                                      const struct upoll * __restrict);
 
 typedef struct galv_conn *
         galv_binder_create_clnt_fn(struct galv_binder * __restrict,
@@ -109,17 +110,24 @@ galv_binder_on_connected(const struct galv_binder * __restrict binder,
 	return binder->ops->on_connected(binder, client);
 }
 
+/*
+ * Watch out !!
+ * `poller' may be given as NULL here since `client' may not have been
+ * registered to poller yet (see ECONNREFUSED / ETIMEDOUT handling into
+ * client/coupler.c
+ */
 static inline
 int
 galv_binder_reconnect_clnt(const struct galv_binder * __restrict binder,
-                           struct galv_conn * __restrict         client)
+                           struct galv_conn * __restrict         client,
+                           const struct upoll * __restrict       poller)
 {
 	galv_binder_assert_intern(binder);
 	galv_conn_assert_intern(client);
 
 	int ret;
 
-	ret = binder->ops->reconnect_clnt(binder, client);
+	ret = binder->ops->reconnect_clnt(binder, client, poller);
 	galv_assert_intern(ret <= 0);
 
 	return ret;

@@ -21,3 +21,9 @@ remove all references to on_may_xfer, on_send_shut, on_recv_shut, on_error
 make a per object type ratelim logger (conn, accept, coupler), should not be
 necessary for binder / adopter.
 implement a client reconnection strategy object ??!
+rename galv_binder_on_connected() to galv_binder_load_peer()
+since poller is now referenced by connection, remove all poller arguments from
+API
+add a connection closed state since clients / binder needs a way to destroy
+connection without closing them (and modify galv_coupler_on_conn_term() to
+effectively close the underlying socket)

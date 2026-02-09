@@ -32,7 +32,7 @@ galv_timer_setup_bkoff_tries(struct galv_timer * __restrict timer,
                              int                            tries,
                              int                            msecs)
 {
-	galv_timer_assert_bkoff_intern(timer);
+	galv_assert_intern(timer);
 	galv_assert_intern(expire);
 	galv_assert_intern(stroll_abs(tries) > 1);
 	galv_assert_intern(msecs > 1);

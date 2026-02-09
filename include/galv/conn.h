@@ -105,6 +105,7 @@ struct galv_conn {
 	enum galv_conn_state            state;
 	int                             fd;
 	struct upoll_worker             work;
+	const struct upoll *            poll;
 	enum galv_conn_link             link;
 	struct galv_dispatch *          dispatch;
 	void *                          ctx;
@@ -191,6 +192,7 @@ galv_conn_switch_state(struct galv_conn * __restrict connection,
 	galv_conn_assert_api(connection);
 	galv_assert_api(state >= 0);
 	galv_assert_api(state < GALV_CONN_STATE_NR);
+	galv_assert_api(connection->fd >= 0);
 
 	connection->state = state;
 	connection->work.dispatch = dispatch;

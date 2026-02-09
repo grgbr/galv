@@ -147,6 +147,15 @@ config GALV_SMPL_DISC_SRV
 	help
 	  Build Galv library with discard service usage sample code.
 
+config GALV_SMPL_DISC_CLNT
+	bool "Discard client sample code"
+	depends on GALV_SMPL
+	select GALV_CLNT
+	select GALV_UNIX
+	default n
+	help
+	  Build Galv library with discard client usage sample code.
+
 config GALV_SMPL_ECHO_CLNT
 	bool "Echo client sample code"
 	depends on GALV_SMPL

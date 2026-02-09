@@ -51,3 +51,5 @@ shared-common-ldflags := $(filter-out -pie -fpie -fPIE,$(common-ldflags)) \
 common-pkgconf        := libutils libstroll
 common-pkgconf        += $(call kconf_enabled,GALV_LOG,libelog)
 common-pkgconf        += $(call kconf_enabled,GALV_RPC,libdpack)
+
+timer-pkgconf         := libetux_timer_list

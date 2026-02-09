@@ -17,11 +17,11 @@
 struct sockaddr;
 
 extern int
-galv_clnt_connect(struct galv_conn * __restrict   connection,
-                  struct sockaddr * __restrict    peer,
-                  int                             tries,
-                  int                             msecs,
-                  const struct upoll * __restrict poller)
+galv_clnt_connect(struct galv_conn * __restrict      client,
+                  const struct sockaddr * __restrict peer,
+                  int                                tries,
+                  int                                msecs,
+                  const struct upoll * __restrict    poller)
 	__export_public;
 
 #endif /* _GALV_CLIENT_H */

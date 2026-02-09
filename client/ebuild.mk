@@ -44,7 +44,7 @@ libgalv_async_clnt.so-objs    := $(addprefix shared/, \
                                              $(libgalv-async-clnt-objects))
 libgalv_async_clnt.so-cflags  := $(libgalv-shared-clnt-cflags)
 libgalv_async_clnt.so-ldflags := $(libgalv-shared-clnt-ldflags) -lgalv_common
-libgalv_async_clnt.so-pkgconf := $(common-pkgconf)
+libgalv_async_clnt.so-pkgconf := $(common-pkgconf) $(timer-pkgconf)
 
 arlibs                        += libgalv_async_clnt.a
 libgalv_async_clnt.a-objs     := $(addprefix static/, \

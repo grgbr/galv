@@ -215,7 +215,7 @@ galv_accept_on_conn_request(struct galv_accept * __restrict acceptor,
 	return ret;
 
 unpoll:
-	galv_conn_unpoll(conn, poller);
+	galv_conn_unpoll(conn);
 destroy:
 	galv_adopt_destroy_conn(acceptor->adopt, conn);
 
@@ -237,7 +237,7 @@ galv_accept_on_conn_term(struct galv_dispatch * __restrict dispatcher,
 	int                  ret;
 
 	galv_conn_repo_unregister(accept->repo, connection);
-	galv_conn_unpoll(connection, poller);
+	galv_conn_unpoll(connection);
 	ret = galv_adopt_destroy_conn(accept->adopt, connection);
 
 	upoll_enable_watch(&accept->work, EPOLLIN);

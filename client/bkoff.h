@@ -8,8 +8,7 @@
 #ifndef _GALV_CLNT_BKOFF_H
 #define _GALV_CLNT_BKOFF_H
 
-#include "common/common.h"
-#include "galv/priv/timer.h"
+#include "common/timer.h"
 
 #define galv_timer_assert_bkoff_intern(_tmr) \
 	galv_assert_intern(_tmr); \

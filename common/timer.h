@@ -18,6 +18,15 @@
 	                   !etux_timer_is_armed(&(_tmr)->base))
 
 static inline
+struct galv_timer *
+galv_timer_from_etux(const struct etux_timer * __restrict timer)
+{
+	galv_assert_intern(timer);
+
+	return containerof(timer, struct galv_timer, base);
+}
+
+static inline
 bool
 galv_timer_retry_armed(const struct galv_timer * __restrict timer)
 {

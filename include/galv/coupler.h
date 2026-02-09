@@ -11,6 +11,16 @@
 #include <galv/priv/coupler.h>
 #include <galv/conn.h>
 
+extern struct galv_conn *
+galv_coupler_create_clnt(struct galv_coupler * __restrict coupler,
+                         int                              flags)
+	__export_public;
+
+extern int
+galv_coupler_destroy_clnt(const struct galv_coupler * __restrict coupler,
+                          struct galv_conn * __restrict          client)
+	__export_public;
+
 extern void
 galv_coupler_setup(struct galv_coupler * __restrict        coupler,
 	           struct galv_binder * __restrict         binder,

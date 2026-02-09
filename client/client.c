@@ -10,22 +10,22 @@
 #include "galv/coupler.h"
 
 int
-galv_clnt_connect(struct galv_conn * __restrict   connection,
-                  struct sockaddr * __restrict    peer,
-                  int                             tries,
-                  int                             msecs,
-                  const struct upoll * __restrict poller)
+galv_clnt_connect(struct galv_conn * __restrict      client,
+                  const struct sockaddr * __restrict peer,
+                  int                                tries,
+                  int                                msecs,
+                  const struct upoll * __restrict    poller)
 {
-	galv_conn_assert_api(connection);
-	galv_assert_api(connection->fd >= 0);
-	galv_assert_api(connection->state == GALV_CONN_OPENED_STATE);
+	galv_conn_assert_api(client);
+	galv_assert_api(client->fd >= 0);
+	galv_assert_api(client->state == GALV_CONN_OPENED_STATE);
 	galv_assert_api(peer);
 	galv_assert_api(tries);
 	galv_assert_api(!tries || (msecs > 0));
 	galv_assert_api(poller);
 
-	return galv_coupler_connect((struct galv_coupler *)connection->dispatch,
-	                            connection,
+	return galv_coupler_connect((struct galv_coupler *)client->dispatch,
+	                            client,
 	                            peer,
 	                            poller,
 	                            tries,

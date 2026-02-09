@@ -3,7 +3,7 @@
 #include <utils/signal.h>
 
 static const struct elog_stdio_conf galvsmpl_log_cfg = {
-	.super.severity = ELOG_INFO_SEVERITY,
+	.super.severity = ELOG_DEBUG_SEVERITY,
 	.format         = ELOG_TAG_FMT
 };
 
@@ -111,7 +111,7 @@ galvsmpl_open_sigchan(struct galvsmpl_sigchan * __restrict channel,
 	usig_delset(&blk, SIGTTOU);
 	usig_procmask(SIG_SETMASK, &blk, NULL);
 
-	galvsmpl_debug("signal handlers registered.");
+	galvsmpl_debug("signal handlers registered");
 
 	return 0;
 

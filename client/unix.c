@@ -141,11 +141,12 @@ galv_unix_binder_reconnect_clnt(
 	 * `client->fd' in case of failure.
 	 *
 	 * In addition, we *MUST* also remove the old file descriptor from the
-	 * epoll(7) interest list.
+	 * epoll(7) interest list if it was ever registered.
 	 * See section `Questions and answers' of epoll(7) man page to
 	 * understand why.
 	 */
-	upoll_unregister(poller, client->fd);
+	if (poller)
+		upoll_unregister(poller, client->fd);
 	unsk_close(client->fd);
 	client->fd = ret;
 

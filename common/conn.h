@@ -62,6 +62,37 @@ galv_conn_on_may_xfer(struct galv_conn * __restrict   connection,
 #endif
 
 static inline
+struct galv_conn *
+galv_conn_from_timer(const struct galv_timer * __restrict timer)
+{
+	galv_assert_intern(timer);
+
+	return containerof(timer, struct galv_conn, timer);
+}
+
+static inline
+const struct upoll *
+galv_conn_poller(const struct galv_conn * __restrict connection)
+{
+	galv_conn_assert_intern(connection);
+
+	return connection->poll;
+}
+
+static inline
+void
+galv_conn_set_state(struct galv_conn * __restrict connection,
+                    enum galv_conn_state          state)
+{
+	galv_conn_assert_intern(connection);
+	galv_assert_api(state >= 0);
+	galv_assert_api(state < GALV_CONN_STATE_NR);
+	galv_assert_api(connection->fd >= 0);
+
+	connection->state = state;
+}
+
+static inline
 int
 galv_conn_on_bound(struct galv_conn * __restrict   connection,
                    const struct upoll * __restrict poller)
@@ -119,51 +150,21 @@ galv_conn_invalid_dispatch(struct upoll_worker * worker,
 	__export_public __noreturn;
 
 /**
- * @return A non zero number of bytes sent upon success, a negative `errno`
- *         like code otherwise.
+ * @return Zero upon success, a negative `errno` like code otherwise.
  * @retval -ENOMEM No more memory available
  * @retval -ENOSPC Maximum system number of per-user (UID) pollable file
  *         descriptors reached (see @man{epoll_ctl(2)} and @man{epoll(7)})
  */
-static inline
-int
+extern int
 galv_conn_poll(struct galv_conn * __restrict   connection,
                const struct upoll * __restrict poller,
                uint32_t                        events,
                upoll_dispatch_fn *             dispatch)
-{
-	galv_conn_assert_intern(connection);
-	galv_assert_intern(connection->fd >= 0);
-	galv_assert_intern(connection->state != GALV_CONN_CONNECTING_STATE);
-	galv_assert_intern(connection->state != GALV_CONN_ESTABLISHED_STATE);
-	galv_assert_intern(connection->state != GALV_CONN_CLOSING_STATE);
-	galv_assert_intern(!(events & ~GALV_CONN_POLL_VALID_EVENTS));
-	galv_assert_intern(dispatch);
+	__export_public;
 
-	int ret;
-
-	ret = upoll_register_dispatch(poller,
-	                              connection->fd,
-	                              events,
-	                              &connection->work,
-	                              dispatch);
-	galv_assert_intern(!ret || (ret == -ENOMEM) || (ret == -ENOSPC));
-
-	return ret;
-}
-
-static inline
-void
-galv_conn_unpoll(struct galv_conn * __restrict   connection,
-                 const struct upoll * __restrict poller)
-{
-	galv_conn_assert_api(connection);
-	galv_assert_api(connection->fd >= 0);
-	galv_assert_intern(connection->state != GALV_CONN_OPENED_STATE);
-	galv_assert_api(poller);
-
-	upoll_unregister(poller, connection->fd);
-}
+extern void
+galv_conn_unpoll(struct galv_conn * __restrict connection)
+	__export_public;
 
 extern void
 galv_conn_setup(struct galv_conn * __restrict           connection,
