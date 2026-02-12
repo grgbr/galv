@@ -103,8 +103,7 @@ static
 int
 galv_unix_binder_reconnect_clnt(
 	const struct galv_binder * __restrict binder __unused,
-	struct galv_conn * __restrict         client,
-	const struct upoll * __restrict       poller)
+	struct galv_conn * __restrict         client)
 {
 	galv_assert_intern((binder->sock_type == SOCK_STREAM) ||
 	                   (binder->sock_type == SOCK_SEQPACKET));
@@ -132,34 +131,29 @@ galv_unix_binder_reconnect_clnt(
 	ret = unsk_open(binder->sock_type,
 	                SOCK_NONBLOCK | etux_sock_getfd(client->fd));
 	if (ret < 0) {
-		msg = "failed to reopen";
+		msg = "failed to open";
 		goto err;
 	}
 
 	/*
 	 *  ... then close the old one to keep a valid file descriptor in
 	 * `client->fd' in case of failure.
-	 *
-	 * In addition, we *MUST* also remove the old file descriptor from the
-	 * epoll(7) interest list if it was ever registered.
-	 * See section `Questions and answers' of epoll(7) man page to
-	 * understand why.
 	 */
-	if (poller)
-		upoll_unregister(poller, client->fd);
 	unsk_close(client->fd);
 	client->fd = ret;
 
 	/* Connect(2) again using currently stored remote peer address. */
 	ret = _galv_unix_binder_connect_clnt(binder, clnt);
-	if (ret)
+	if (ret) {
+		msg = "failed to connect";
 		goto err;
+	}
 
 	return 0;
 
 err:
 	if (ret != -ENOMEM)
-		galv_ratelim_pnotice(ret,
+		galv_ratelim_pnotice(-ret,
 		                     "unix: cannot reconnect client connection",
 		                     ": %s",
 		                     msg);

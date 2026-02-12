@@ -25,8 +25,7 @@ typedef void
 
 typedef int
         galv_binder_reconnect_clnt_fn(const struct galv_binder * __restrict,
-                                      struct galv_conn * __restrict,
-                                      const struct upoll * __restrict);
+                                      struct galv_conn * __restrict);
 
 typedef struct galv_conn *
         galv_binder_create_clnt_fn(struct galv_binder * __restrict,
@@ -119,15 +118,14 @@ galv_binder_on_connected(const struct galv_binder * __restrict binder,
 static inline
 int
 galv_binder_reconnect_clnt(const struct galv_binder * __restrict binder,
-                           struct galv_conn * __restrict         client,
-                           const struct upoll * __restrict       poller)
+                           struct galv_conn * __restrict         client)
 {
 	galv_binder_assert_intern(binder);
 	galv_conn_assert_intern(client);
 
 	int ret;
 
-	ret = binder->ops->reconnect_clnt(binder, client, poller);
+	ret = binder->ops->reconnect_clnt(binder, client);
 	galv_assert_intern(ret <= 0);
 
 	return ret;

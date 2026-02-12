@@ -13,7 +13,7 @@
 #define GALVSMPL_DISC_CLNT_PATH    "sock"
 #define GALVSMPL_DISC_CLNT_CONN_NR (8U)
 #define GALVSMPL_DISC_CLNT_BULK_NR (4U)
-#define GALVSMPL_DISC_CLNT_TRIES   (3)
+#define GALVSMPL_DISC_CLNT_TRIES   (0)
 #define GALVSMPL_DISC_CLNT_MSECS   (500)
 
 static char galvsmpl_disc_clnt_buffer[1024];

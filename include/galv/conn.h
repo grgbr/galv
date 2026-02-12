@@ -141,7 +141,6 @@ galv_conn_dispatcher(const struct galv_conn * __restrict connection)
 {
 	galv_conn_assert_api(connection);
 	galv_assert_api(connection->fd >= 0);
-	galv_assert_api(connection->state != GALV_CONN_OPENED_STATE);
 
 	return connection->dispatch;
 }
@@ -203,8 +202,9 @@ uint32_t
 galv_conn_watched(const struct galv_conn * __restrict connection)
 {
 	galv_conn_assert_api(connection);
-	galv_assert_api(connection->fd >= 0);
 	galv_assert_api(connection->state != GALV_CONN_OPENED_STATE);
+	galv_assert_api(connection->fd >= 0);
+	galv_assert_api(connection->poll);
 
 	return upoll_watched_events(&connection->work);
 }
@@ -215,8 +215,9 @@ galv_conn_watch(struct galv_conn * __restrict connection,
                 uint32_t                      events)
 {
 	galv_conn_assert_api(connection);
-	galv_assert_api(connection->fd >= 0);
 	galv_assert_api(connection->state != GALV_CONN_OPENED_STATE);
+	galv_assert_api(connection->fd >= 0);
+	galv_assert_api(connection->poll);
 	galv_assert_api(!(events & ~GALV_CONN_POLL_VALID_EVENTS));
 
 	upoll_enable_watch(&connection->work, events);
@@ -228,8 +229,9 @@ galv_conn_unwatch(struct galv_conn * __restrict connection,
                   uint32_t                      events)
 {
 	galv_conn_assert_api(connection);
-	galv_assert_api(connection->fd >= 0);
 	galv_assert_api(connection->state != GALV_CONN_OPENED_STATE);
+	galv_assert_api(connection->fd >= 0);
+	galv_assert_api(connection->poll);
 	galv_assert_api(!(events & ~GALV_CONN_POLL_VALID_EVENTS));
 
 	upoll_disable_watch(&connection->work, events);
@@ -241,8 +243,9 @@ galv_conn_apply_watch(struct galv_conn * __restrict   connection,
                       const struct upoll * __restrict poller)
 {
 	galv_conn_assert_api(connection);
-	galv_assert_api(connection->fd >= 0);
 	galv_assert_api(connection->state != GALV_CONN_OPENED_STATE);
+	galv_assert_api(connection->fd >= 0);
+	galv_assert_api(connection->poll);
 
 	upoll_apply(poller, connection->fd, &connection->work);
 }
@@ -254,8 +257,9 @@ galv_conn_reset_watch(struct galv_conn * __restrict   connection,
                       uint32_t                        events)
 {
 	galv_conn_assert_api(connection);
-	galv_assert_api(connection->fd >= 0);
 	galv_assert_api(connection->state != GALV_CONN_OPENED_STATE);
+	galv_assert_api(connection->fd >= 0);
+	galv_assert_api(connection->poll);
 	galv_assert_api(!(events & ~GALV_CONN_POLL_VALID_EVENTS));
 
 	upoll_setup_watch(&connection->work, events);

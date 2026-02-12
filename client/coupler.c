@@ -38,9 +38,8 @@ galv_coupler_rearm_bind(struct galv_conn * __restrict  client,
 	galv_assert_intern(!galv_timer_bkoff_armed(timer));
 	galv_assert_intern(poller);
 
-
 	if (!galv_timer_bkoff_defunct(timer)) {
-		galv_conn_reset_watch(client, poller, 0);
+		galv_conn_unpoll(client);
 		galv_timer_arm_bkoff(timer);
 
 		galv_debug("coupler: client reconnection scheduled");
@@ -197,22 +196,20 @@ static
 int
 galv_coupler_poll_clnt(const struct galv_coupler * __restrict coupler,
                        struct galv_conn * __restrict          client,
-                       uint32_t                               events,
                        const struct upoll * __restrict        poller)
 {
 	galv_coupler_assert_intern(coupler);
 	galv_conn_assert_intern(client);
 	galv_assert_intern(client->fd >= 0);
-	galv_assert_api(client->state != GALV_CONN_CONNECTING_STATE);
+	galv_assert_api(client->state == GALV_CONN_CONNECTING_STATE);
 	galv_assert_api(client->state != GALV_CONN_ESTABLISHED_STATE);
-	galv_assert_intern(!(events & ~((uint32_t)EPOLLOUT)));
 	galv_assert_intern(poller);
 
 	int err;
 
 	err = galv_conn_poll(client,
 	                     poller,
-	                     events,
+	                     EPOLLOUT,
 	                     galv_coupler_dispatch_clnt);
 	if (!err) {
 		galv_conn_set_state(client, GALV_CONN_BINDING_STATE);
@@ -221,29 +218,6 @@ galv_coupler_poll_clnt(const struct galv_coupler * __restrict coupler,
 	}
 
 	return err;
-}
-
-static
-int
-galv_coupler_reconnect_clnt(const struct galv_coupler * __restrict coupler,
-                            struct galv_conn * __restrict          client,
-                            const struct upoll *                   poller)
-{
-	galv_coupler_assert_intern(coupler);
-	galv_conn_assert_intern(client);
-	galv_assert_intern(client->fd >= 0);
-	galv_assert_intern(galv_conn_state(client) == GALV_CONN_BINDING_STATE);
-	galv_assert_intern(!galv_conn_watched(client));
-	galv_assert_intern(!galv_timer_bkoff_armed(galv_conn_timer(client)));
-	galv_assert_intern(poller);
-
-	int ret;
-
-	ret = galv_binder_reconnect_clnt(coupler->bind, client, poller);
-	if (!ret)
-		ret = galv_coupler_poll_clnt(coupler, client, 0, poller);
-
-	return ret;
 }
 
 /*
@@ -267,56 +241,81 @@ galv_coupler_expire_binding(struct etux_timer * __restrict timer)
 	                                  galv_conn_dispatcher(clnt);
 	const struct upoll *        poll = galv_conn_poller(clnt);
 	int                         ret;
-	const char *                msg = "maximum reconnection "
-	                                  "attempts reached";
+	const char *                msg;
 
-	ret = galv_coupler_reconnect_clnt(cpl, clnt, poll);
+	galv_debug("coupler: trying to reconnect client..");
+
+	ret = galv_binder_reconnect_clnt(cpl->bind, clnt);
 	switch (ret) {
 	case 0:
-		ret = galv_coupler_on_bound(cpl, clnt, poll);
-		switch (ret) {
-		case 0:
-			return;
+		ret = galv_conn_poll(clnt,
+		                     poll,
+		                     EPOLLOUT,
+		                     galv_coupler_dispatch_clnt);
+		if (!ret) {
+			ret = galv_coupler_on_bound(cpl, clnt, poll);
+			if (!ret)
+				return;
 
+			galv_conn_unpoll(clnt);
+		}
+
+		switch (ret) {
 		case -ENOBUFS: /* Custom allocator failure */
+		case -ENOSPC:  /* Too many epoll file descriptors registered. */
 			msg = "unrecoverable upper layer error";
 			goto err;
 
 		case -ENOMEM:  /* No more memory. */
 			goto term;
 		}
-		
-		if (!galv_coupler_rearm_bind(clnt, tmr, poll))
-			return;
-		goto err;
+
+		break;
 
 	case -EINPROGRESS: /* Connection cannot complete immediately. */
 		/*
-		 * Make sure the poller calls
-		 * galv_coupler_dispatch_clnt() once an asynchronous
-		 * connect(2) event occurs, i.e., either in case of
-		 * success or error (timeout, connection refused,
-		 * etc...)
+		 * Make sure the poller calls galv_coupler_dispatch_clnt() once
+		 * an asynchronous connect(2) event occurs, i.e., either in case
+		 * of success or error (timeout, connection refused, etc...)
 		 */
-		return galv_conn_reset_watch(clnt, poll, EPOLLOUT);
+		ret = galv_conn_poll(clnt,
+		                     poll,
+		                     EPOLLOUT,
+		                     galv_coupler_dispatch_clnt);
+		if (!ret)
+			return;
+		msg = "unrecoverable error";
+		goto err;
 
 	case -ECONNREFUSED: /* No remote peer is listening. */
 	case -ETIMEDOUT:    /* Connection attempt timeout. */
-	case -EINTR:      /* Signal occured before completion. */
-		if (!galv_coupler_rearm_bind(clnt, tmr, poll))
-			return;
+	case -EINTR:        /* Signal occured before completion. */
+		break;
+
+	default:
+		msg = "unrecoverable error";
 		goto err;
 	}
 
-	msg = "unrecoverable error";
+	if (!galv_timer_bkoff_defunct(tmr)) {
+		/*
+		 * Do not register to poller yet since the socket would be
+		 * notified with an EPOLLHUP event at next polling round.
+		 * Arm the reconnection timer instead and get out.
+		 */
+		galv_timer_arm_bkoff(tmr);
+		galv_debug("coupler: client reconnection scheduled");
+		return;
+	}
+	else
+		msg = "maximum reconnection attempts reached";
 
 err:
-	galv_ratelim_pnotice(-ret,
-	                     "coupler: cannot reconnect client",
-	                     ": %s",
-	                     msg);
+	galv_pdebug(-ret, "coupler: cannot reconnect client: %s", msg);
 term:
-	galv_coupler_term_bind(cpl, clnt, poll);
+	galv_conn_repo_unregister(cpl->repo, clnt);
+	galv_conn_set_state(clnt, GALV_CONN_OPENED_STATE);
+	return;
 }
 
 /* TODO: make a galv_coupler_reconnect()/galv_clnt_reconnect() API */
@@ -342,7 +341,7 @@ galv_coupler_connect(struct galv_coupler * __restrict   coupler,
                      struct galv_conn * __restrict      client,
                      const struct sockaddr * __restrict peer,
                      const struct upoll * __restrict    poller,
-                     int                                tries,
+                     int                                retries,
                      int                                msecs)
 {
 	galv_coupler_assert_api(coupler);
@@ -350,39 +349,53 @@ galv_coupler_connect(struct galv_coupler * __restrict   coupler,
 	galv_assert_api(galv_conn_state(client) == GALV_CONN_OPENED_STATE);
 	galv_assert_api(peer);
 	galv_assert_api(poller);
-	galv_assert_api(!tries || msecs);
+	galv_assert_api(!retries || msecs);
 
 	int          ret;
-	const char * msg = "failed to poll";
+	const char * msg;
 
 	ret = galv_binder_connect_clnt(coupler->bind, client, peer);
 	switch (ret) {
 	case 0:
-		galv_binder_on_connected(coupler->bind, client);
-		ret = galv_coupler_poll_clnt(coupler, client, 0, poller);
-		if (ret)
-			goto err;
-
-		ret = galv_conn_on_bound(client, poller);
+		ret = galv_coupler_poll_clnt(coupler, client, poller);
 		switch (ret) {
 		case 0:
-			return 0;
+			ret = galv_coupler_on_bound(coupler, client, poller);
+			if (!ret || (ret == -EINTR))
+				/* TODO: is -EINTR really worth it ? Return 0 ? */
+				return 0;
+			break;
 
-		case -ENOBUFS: /* Custom allocator failure */
-			galv_coupler_term_bind(coupler, client, poller);
-			msg = "unrecoverable upper layer error";
+		case -ENOSPC:  /* Too many epoll file descriptors registered. */
+			msg = "failed to poll";
 			goto err;
 
 		case -ENOMEM:  /* No more memory. */
-			galv_coupler_term_bind(coupler, client, poller);
-			return -ENOMEM;
+			return ret;
 		}
 
-		if (tries)
-			goto rebind;
-		galv_coupler_term_bind(coupler, client, poller);
-		msg = "reconnection disabled";
-		goto err;
+		galv_conn_unpoll(client);
+
+TODO : REFACTOR mE!
+		switch (ret) {
+		case -ENOBUFS: /* Custom allocator failure */
+			msg = "unrecoverable upper layer error";
+			break;
+
+		case -ENOMEM:  /* No more memory. */
+			galv_conn_repo_unregister(coupler->repo, client);
+			galv_conn_set_state(client, GALV_CONN_OPENED_STATE);
+			return ret;
+
+		default:
+			if (retries)
+				goto rebind;
+			msg = "reconnection disabled";
+		}
+
+		galv_conn_repo_unregister(coupler->repo, client);
+		galv_conn_set_state(client, GALV_CONN_OPENED_STATE);
+		break;
 
 	case -EINPROGRESS: /* Connection cannot complete immediately. */
 		/*
@@ -390,53 +403,45 @@ galv_coupler_connect(struct galv_coupler * __restrict   coupler,
 		 * an asynchronous connect(2) event occurs, i.e., either in case
 		 * of success or error (timeout, connection refused, etc...)
 		 */
-		ret = galv_coupler_poll_clnt(coupler, client, EPOLLOUT, poller);
+		ret = galv_coupler_poll_clnt(coupler, client, poller);
 		if (!ret)
-			goto differ;
-		goto err;
+			return -EINPROGRESS;
+		msg = "failed to poll";
+		break;
 
 	case -ECONNREFUSED: /* No remote peer is listening. */
 	case -ETIMEDOUT:    /* Connection attempt timeout (server busy ?). */
-		if (tries) {
-			/*
-			 * Do not register to poller yet since the socket would
-			 * be notified with an EPOLLHUP event within
-			 * galv_coupler_dispatch_clnt() at first polling round:
-			 * we could not connect indeed...
-			 */
+		if (retries) {
 			galv_conn_set_state(client, GALV_CONN_BINDING_STATE);
 			galv_conn_repo_register(coupler->repo, client);
-
-			/* Arm the reconnection timer and get out. */
 			goto rebind;
 		}
-		else
-			msg = "reconnection disabled";
-		goto err;
+		msg = "reconnection disabled";
+		break;
 
-	case -EINTR:      /* Signal occured before connect(2) started. */
+	case -EINTR:        /* Signal occured before connect(2) started. */
 		return -EINTR;
+
+	default:
+		msg = "unrecoverable error";
 	}
 
-	msg = "unrecoverable error";
-
 err:
-	galv_ratelim_pnotice(-ret,
-	                     "coupler: cannot connect client",
-	                     ": %s",
-	                     msg);
+	galv_pdebug(-ret, "coupler: initial client connection failed: %s", msg);
 	return ret;
 
 rebind:
-	galv_pdebug(-ret, "coupler: initial client connection failed");
-	galv_debug("coupler: client reconnection scheduled");
-differ:
+	/*
+	 * Do not register to poller yet since the socket would be
+	 * notified with an EPOLLHUP event at next polling round.
+	 * Arm the reconnection timer instead and get out.
+	 */
 	galv_timer_setup_bkoff_tries(galv_conn_timer(client),
 	                             galv_coupler_expire_binding,
-	                             tries,
+	                             retries,
 	                             msecs);
 	galv_timer_arm_bkoff(galv_conn_timer(client));
-
+	galv_debug("coupler: client reconnection scheduled");
 	return -EINPROGRESS;
 }
 
