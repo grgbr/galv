@@ -13,7 +13,7 @@
 #define GALVSMPL_DISC_CLNT_PATH    "sock"
 #define GALVSMPL_DISC_CLNT_CONN_NR (8U)
 #define GALVSMPL_DISC_CLNT_BULK_NR (4U)
-#define GALVSMPL_DISC_CLNT_TRIES   (0)
+#define GALVSMPL_DISC_CLNT_TRIES   (3)
 #define GALVSMPL_DISC_CLNT_MSECS   (500)
 
 static char galvsmpl_disc_clnt_buffer[1024];
@@ -62,7 +62,7 @@ galvsmpl_disc_process_established_clnt(struct upoll_worker * worker,
 {
 	galvsmpl_assert(!(events &
 	                  ~((uint32_t)
-	                    (EPOLLOUT | EPOLLHUP | EPOLLERR))));
+	                    (EPOLLRDHUP | EPOLLOUT | EPOLLHUP | EPOLLERR))));
 
 	struct galv_conn * clnt = galv_conn_from_worker(worker);
 	int                ret;
