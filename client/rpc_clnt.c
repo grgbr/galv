@@ -141,15 +141,14 @@ galv_rpc_clnt_prep_reply(struct galv_rpc_clnt_msg * message)
 struct galv_rpc_clnt_msg *
 galv_rpc_clnt_create_request(struct galv_rpc_clnt * __restrict rpc,
                              uint32_t                          id,
-                             galv_rpc_clnt_fn *                handler,
-                             void *                            context)
+                             galv_rpc_clnt_fn *                handler)
 {
 	if (!rpc->msg) {
 		struct galv_rpc_clnt_msg * req;
 		struct galv_sess_head *    head;
 		int                        err;
 
-		req = malloc(sizeof(*req));
+		req = malloc(rpc->msg_size);
 		if (!req)
 			return NULL;
 
@@ -161,7 +160,6 @@ galv_rpc_clnt_create_request(struct galv_rpc_clnt * __restrict rpc,
 		req->type = GALV_SESS_HEAD_REQUEST_TYPE;
 		req->id = id;
 		req->hndl = handler;
-		req->ctx = context;
 		req->off = sizeof(*head);
 		req->busy = 0;
 
@@ -223,7 +221,7 @@ galv_rpc_clnt_recv_msg(struct galv_rpc_clnt_msg * __restrict message)
 	if (head.xchg != 0)
 		return -EPROTO;
 
-	left = head.size + 1;
+	left = (size_t)head.size + 1;
 	if ((sizeof(head) + left) > sizeof(message->buff))
 		return -EMSGSIZE;
 
@@ -267,7 +265,7 @@ galv_rpc_clnt_send_msg(struct galv_rpc_clnt_msg * __restrict message)
 	                GALV_SESS_HEAD_MULTI_FLAG_BIT) |
 	               (message->type << GALV_SESS_HEAD_TYPE_FLAG_BIT));
 	head->xchg = 0;
-	head->size = (uint16_t)left - 1;
+	head->size = (uint16_t)(left - 1);
 
 	left += sizeof(*head);
 
@@ -317,7 +315,7 @@ galv_rpc_clnt_push_msg(struct galv_rpc_clnt_msg * __restrict message)
 	ret = 0;
 
 out:
-	ret = message->hndl(message, ret, message->ctx);
+	ret = message->hndl(message, ret);
 	switch (ret) {
 	case 0:
 	case -EINTR:
@@ -358,8 +356,10 @@ galv_rpc_clnt_connect(struct galv_rpc_clnt *     client,
 }
 
 int
-galv_rpc_clnt_open(struct galv_rpc_clnt * client, int flags)
+galv_rpc_clnt_open(struct galv_rpc_clnt * client, int flags, size_t msg_size)
 {
+	galv_assert_api(msg_size >= sizeof(struct galv_rpc_clnt_msg));
+
 	int sk;
 
 	sk = unsk_open(SOCK_STREAM, flags);
@@ -368,6 +368,7 @@ galv_rpc_clnt_open(struct galv_rpc_clnt * client, int flags)
 
 	client->fd = sk;
 	client->msg = NULL;
+	client->msg_size = msg_size;
 
 	return 0;
 }
