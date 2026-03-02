@@ -115,7 +115,6 @@ galv_conn_poll(struct galv_conn * __restrict   connection,
 {
 	galv_conn_assert_intern(connection);
 	galv_assert_intern(connection->fd >= 0);
-	galv_assert_intern(!connection->poll);
 	galv_assert_intern(!(events & ~GALV_CONN_POLL_VALID_EVENTS));
 	galv_assert_intern(dispatch);
 
@@ -142,9 +141,9 @@ galv_conn_unpoll(struct galv_conn * __restrict connection)
 	galv_conn_assert_intern(connection);
 	galv_assert_intern(connection->fd >= 0);
 
-	if (connection->poll) {
+	if (connection->state >= GALV_CONN_BINDING_STATE) {
+		galv_assert_intern(connection->poll);
 		upoll_unregister(connection->poll, connection->fd);
-		connection->poll = NULL;
 	}
 }
 

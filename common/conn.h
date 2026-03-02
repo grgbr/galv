@@ -81,6 +81,17 @@ galv_conn_poller(const struct galv_conn * __restrict connection)
 
 static inline
 void
+galv_conn_set_poller(struct galv_conn * __restrict   connection,
+                     const struct upoll * __restrict poller)
+{
+	galv_conn_assert_intern(connection);
+	galv_assert_intern(poller);
+
+	connection->poll = poller;
+}
+
+static inline
+void
 galv_conn_set_state(struct galv_conn * __restrict connection,
                     enum galv_conn_state          state)
 {

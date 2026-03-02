@@ -203,7 +203,8 @@ extern __thread struct elog * galv_logger __export_public;
 #if defined(CONFIG_GALV_PRNG)
 
 extern int
-galv_prng_max(int high);
+galv_prng_max(int high)
+	__export_public;
 
 #endif /* defined(CONFIG_GALV_PRNG) */
 

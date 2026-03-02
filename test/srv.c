@@ -17,7 +17,6 @@ int main(void)
 	struct sockaddr_un local = UNSK_NAMED_ADDR(GALVUT_SRV_PATH);
 	struct sockaddr_un peer;
 	socklen_t          sz = sizeof(peer);
-	int                psk;
 	char               str[UNSK_NAMED_PATH_MAX];
 	const char *       msg;
 
@@ -46,21 +45,26 @@ int main(void)
 		goto close_local;
 	}
 
-	sleep(10);
-	psk = unsk_accept(lsk, &peer, &sz, SOCK_CLOEXEC);
-	if (psk < 0) {
-		err = psk;
-		msg = "failed to accept connection";
-		goto close_local;
-	}
+	while (true) {
+		int psk;
 
-	galvut_srv_log("connection request accepted from '%s'.\n",
-	               unsk_make_addr_string(str, &peer, sz));
+		psk = unsk_accept(lsk, &peer, &sz, SOCK_CLOEXEC);
+		if (psk < 0) {
+			err = psk;
+			msg = "failed to accept connection";
+			goto close_local;
+		}
+
+		galvut_srv_log("connection request accepted from '%s'.\n",
+		               unsk_make_addr_string(str, &peer, sz));
+
+		sleep(1);
+
+		unsk_close(psk);
+	}
 
 	err = 0;
 
-/*close_peer:*/
-	unsk_close(psk);
 close_local:
 	unsk_close(lsk);
 out:

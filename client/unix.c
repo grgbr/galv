@@ -36,15 +36,15 @@ _galv_unix_binder_connect_clnt(
 		 * -EINPROGRESS when the connection cannot be completed
 		 * immediately.
 		 */
-		galv_debug("unix: differing client connection establishment to"
+		galv_debug("unix: differing client connection establishment to "
 		           "[addr:%s]..",
 		           unsk_make_addr_string(str, &addr->data, addr->size));
 		return -EINPROGRESS;
 	}
 
 	galv_ratelim_pinfo(-ret,
-	                   "unix: cannot establish client connection",
-	                   " to [addr:%s]",
+	                   "unix: cannot establish client connection to ",
+	                   "[addr:%s]",
 	                   unsk_make_addr_string(str, &addr->data, addr->size));
 
 	/*
@@ -92,8 +92,8 @@ galv_unix_binder_on_connected(
 	unsk_getsockopt(client->fd, SO_PEERCRED, cred, &sz);
 	galv_assert_intern(sz == sizeof(*cred));
 
-	galv_ratelim_info("unix: client connection established",
-	                  " to [addr:%s pid:%d uid:%d]",
+	galv_ratelim_info("unix: client connection established to ",
+	                  "[addr:%s pid:%d uid:%d]",
 	                   unsk_make_addr_string(str, &addr->data, addr->size),
 	                   cred->pid,
 	                   cred->uid);

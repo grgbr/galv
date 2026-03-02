@@ -13,7 +13,7 @@
 #define GALVSMPL_DISC_CLNT_PATH    "sock"
 #define GALVSMPL_DISC_CLNT_CONN_NR (8U)
 #define GALVSMPL_DISC_CLNT_BULK_NR (4U)
-#define GALVSMPL_DISC_CLNT_TRIES   (3)
+#define GALVSMPL_DISC_CLNT_TRIES   (-3)
 #define GALVSMPL_DISC_CLNT_MSECS   (500)
 
 static char galvsmpl_disc_clnt_buffer[1024];
@@ -67,9 +67,10 @@ galvsmpl_disc_process_established_clnt(struct upoll_worker * worker,
 	struct galv_conn * clnt = galv_conn_from_worker(worker);
 	int                ret;
 
-	if (events & EPOLLERR)
-		galvsmpl_pwarn(galv_conn_async_error(clnt),
-		               "unexpected asynchronous socket error");
+	if (events & EPOLLERR) {
+		ret = galv_conn_async_error(clnt);
+		galvsmpl_pwarn(ret, "asynchronous socket error");
+	}
 
 	if (events & (EPOLLRDHUP | EPOLLHUP)) {
 		galvsmpl_info("peer connection shut down");

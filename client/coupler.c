@@ -26,23 +26,6 @@
 	galv_repo_assert_intern((_coupler)->repo); \
 	galv_conn_assert_ops_intern((_coupler)->conn_ops)
 
-static
-int
-galv_coupler_on_bound(const struct galv_coupler * __restrict coupler,
-                      struct galv_conn * __restrict          client,
-                      const struct upoll *                   poller)
-{
-	galv_coupler_assert_intern(coupler);
-	galv_conn_assert_intern(client);
-	galv_assert_intern(client->fd >= 0);
-	galv_assert_intern(galv_conn_state(client) == GALV_CONN_BINDING_STATE);
-	galv_assert_intern(poller);
-
-	galv_binder_on_connected(coupler->bind, client);
-
-	return galv_conn_on_bound(client, poller);
-}
-
 /*
  * @return 0 in case of success, a negative errno-like value otherwise.
  * @retval -EINTR  Signal occured before connect(2) started.
@@ -79,7 +62,8 @@ galv_coupler_dispatch_clnt(struct upoll_worker * worker,
 		if (!ret) {
 			galv_assert_intern(!(events & EPOLLERR));
 			
-			ret = galv_coupler_on_bound(cpl, clnt, poller);
+			galv_binder_on_connected(cpl->bind, clnt);
+			ret = galv_conn_on_bound(clnt, poller);
 			if (!ret || (ret == -EINTR))
 				/* TODO: is -EINTR really worth it ? Return 0 ? */
 				return ret;
@@ -129,33 +113,6 @@ term:
 	return ((ret != -EINTR) && (ret != -ENOMEM)) ? 0 : ret;
 }
 
-static
-int
-galv_coupler_poll_clnt(const struct galv_coupler * __restrict coupler,
-                       struct galv_conn * __restrict          client,
-                       const struct upoll * __restrict        poller)
-{
-	galv_coupler_assert_intern(coupler);
-	galv_conn_assert_intern(client);
-	galv_assert_intern(client->fd >= 0);
-	galv_assert_api(client->state == GALV_CONN_OPENED_STATE);
-	galv_assert_intern(poller);
-
-	int err;
-
-	err = galv_conn_poll(client,
-	                     poller,
-	                     EPOLLOUT,
-	                     galv_coupler_dispatch_clnt);
-	if (!err) {
-		galv_conn_set_state(client, GALV_CONN_BINDING_STATE);
-		galv_conn_repo_register(coupler->repo, client);
-		return 0;
-	}
-
-	return err;
-}
-
 /*
  * Process expiration of binding timer, i.e., the timer that completes (or
  * cancel) a previous connect(2) failure detected at galv_coupler_connect() or
@@ -189,7 +146,8 @@ galv_coupler_expire_binding(struct etux_timer * __restrict timer)
 		                     EPOLLOUT,
 		                     galv_coupler_dispatch_clnt);
 		if (!ret) {
-			ret = galv_coupler_on_bound(cpl, clnt, poll);
+			galv_binder_on_connected(cpl->bind, clnt);
+			ret = galv_conn_on_bound(clnt, poll);
 			if (!ret || (ret == -EINTR))
 				/* TODO: is -EINTR really worth it ? Return 0 ? */
 				return;
@@ -286,15 +244,28 @@ galv_coupler_connect(struct galv_coupler * __restrict   coupler,
 	galv_assert_api(poller);
 	galv_assert_api(!retries || msecs);
 
-	int          ret;
-	const char * msg = "unrecoverable error";
+	struct galv_timer * tmr = galv_conn_timer(client);
+	int                 ret;
+	const char *        msg = "unrecoverable error";
+
+	galv_timer_setup_bkoff_tries(tmr,
+	                             galv_coupler_expire_binding,
+	                             retries,
+	                             msecs);
+	galv_conn_set_poller(client, poller);
 
 	ret = galv_binder_connect_clnt(coupler->bind, client, peer);
 	switch (ret) {
 	case 0:
-		ret = galv_coupler_poll_clnt(coupler, client, poller);
+		ret = galv_conn_poll(client,
+		                     poller,
+		                     EPOLLOUT,
+		                     galv_coupler_dispatch_clnt);
 		if (!ret) {
-			ret = galv_coupler_on_bound(coupler, client, poller);
+			galv_conn_set_state(client, GALV_CONN_BINDING_STATE);
+			galv_binder_on_connected(coupler->bind, client);
+			galv_conn_repo_register(coupler->repo, client);
+			ret = galv_conn_on_bound(client, poller);
 			if (!ret || (ret == -EINTR))
 				/* TODO: is -EINTR really worth it ? Return 0 ? */
 				return 0;
@@ -327,13 +298,13 @@ galv_coupler_connect(struct galv_coupler * __restrict   coupler,
 		 * an asynchronous connect(2) event occurs, i.e., either in case
 		 * of success or error (timeout, connection refused, etc...)
 		 */
-		ret = galv_coupler_poll_clnt(coupler, client, poller);
+		ret = galv_conn_poll(client,
+		                     poller,
+		                     EPOLLOUT,
+		                     galv_coupler_dispatch_clnt);
 		if (!ret) {
-			galv_timer_setup_bkoff_tries(
-				galv_conn_timer(client),
-				galv_coupler_expire_binding,
-				retries,
-				msecs);
+			galv_conn_set_state(client, GALV_CONN_BINDING_STATE);
+			galv_conn_repo_register(coupler->repo, client);
 			return -EINPROGRESS;
 		}
 
@@ -343,7 +314,7 @@ galv_coupler_connect(struct galv_coupler * __restrict   coupler,
 	case -ECONNREFUSED: /* No remote peer is listening. */
 	case -ETIMEDOUT:    /* Connection attempt timeout (server busy ?). */
 		if (retries) {
-			galv_conn_set_state(client, GALV_CONN_BINDING_STATE);
+			galv_conn_set_poller(client, poller);
 			galv_conn_repo_register(coupler->repo, client);
 			break;
 		}
@@ -365,11 +336,7 @@ galv_coupler_connect(struct galv_coupler * __restrict   coupler,
 	 * an EPOLLHUP event at next polling round.
 	 * Arm the reconnection timer instead and get out.
 	 */
-	galv_timer_setup_bkoff_tries(galv_conn_timer(client),
-	                             galv_coupler_expire_binding,
-	                             retries,
-	                             msecs);
-	galv_timer_arm_bkoff(galv_conn_timer(client));
+	galv_timer_arm_bkoff(tmr);
 	galv_debug("coupler: client reconnection scheduled");
 
 	return -EINPROGRESS;
@@ -412,13 +379,13 @@ galv_coupler_on_conn_term(struct galv_dispatch * __restrict dispatcher,
 {
 	galv_assert_intern(dispatcher);
 	galv_conn_assert_intern(client);
-	galv_assert_intern(galv_conn_state(client) != GALV_CONN_OPENED_STATE);
 	galv_assert_intern(poller);
 
 	const struct galv_coupler * cpl = (const struct galv_coupler *)
 	                                  dispatcher;
 	galv_coupler_assert_intern(cpl);
 
+	galv_timer_cancel_bkoff(galv_conn_timer(client));
 	galv_conn_repo_unregister(cpl->repo, client);
 	galv_conn_unpoll(client);
 	galv_conn_set_state(client, GALV_CONN_OPENED_STATE);
