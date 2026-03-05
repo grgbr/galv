@@ -112,6 +112,7 @@ galv_unix_binder_reconnect_clnt(
 	int                     ret;
 	const char *            msg;
 
+#if defined(_GALV_UNIX_PORTABLE_CLNT)
 	/*
 	 * As stated into connect(2), we should consider the state of the socket
 	 * as unspecified in case of failure: open a new socket, close the old
@@ -122,6 +123,8 @@ galv_unix_binder_reconnect_clnt(
 	 * the whole Galv internal state machine with no valid file descriptor
 	 * at all upon return from this function (galv_coupler, galv_conn and
 	 * galv_unix_conn highly depend on its presence).
+	 *
+	 * Note: This does not seem to be necessary on Linux...
 	 */
 
 	/*
@@ -141,6 +144,7 @@ galv_unix_binder_reconnect_clnt(
 	 */
 	unsk_close(client->fd);
 	client->fd = ret;
+#endif /* defined(_GALV_UNIX_PORTABLE_CLNT) */
 
 	/* Connect(2) again using currently stored remote peer address. */
 	ret = _galv_unix_binder_connect_clnt(binder, clnt);

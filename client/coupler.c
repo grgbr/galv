@@ -57,33 +57,49 @@ galv_coupler_dispatch_clnt(struct upoll_worker * worker,
 	galv_assert_intern(galv_conn_watched(clnt) == EPOLLOUT);
 	galv_coupler_assert_intern(cpl);
 
-	if (events & (EPOLLERR | EPOLLOUT)) {
-		ret = - galv_conn_async_error(clnt);
-		if (!ret) {
-			galv_assert_intern(!(events & EPOLLERR));
-			
-			galv_binder_on_connected(cpl->bind, clnt);
-			ret = galv_conn_on_bound(clnt, poller);
-			if (!ret || (ret == -EINTR))
-				/* TODO: is -EINTR really worth it ? Return 0 ? */
-				return ret;
+	if (events & EPOLLERR)
+		/*
+		 * Nothing specific to do as next syscall called with our socket
+		 * fd as argument should return the error as errno...
+		 */
+		galv_ratelim_notice("coupler: socket error ignored", "");
 
-			if ((ret != -ENOBUFS) && (ret != -ENOMEM))
-				goto rebind;
-		}
-		else if ((ret == -ECONNREFUSED) ||
-		         (ret == -ETIMEDOUT) ||
-		         (ret == -EINTR))
-			goto rebind;
-
-		galv_pdebug(-ret,
-		            "coupler: cannot complete client connection: "
-		            "unrecoverable error");
-		goto term;
-	}
-	else
-		/* (events & EPOLLHUP): unexpected peer reset. */
+	if (events & EPOLLHUP) {
 		ret = -ECONNRESET;
+		goto rebind;
+	}
+
+	galv_assert_intern(events & (EPOLLERR | EPOLLOUT));
+	ret = - galv_conn_async_error(clnt);
+	if (!ret) {
+		galv_binder_on_connected(cpl->bind, clnt);
+		ret = galv_conn_on_bound(clnt, poller);
+		if (!ret || (ret == -EINTR))
+			/*
+			 * When -EINTR is returned, galv_conn_on_bound() *MUST*
+			 * have completed its logic !
+			 * See definition of on_bound() connection operations
+			 * function pointer in <galv/conn.h> for more infos.
+			 */
+			return ret;
+
+		if ((ret != -ENOBUFS) && (ret != -ENOMEM))
+			goto rebind;
+	}
+	else if ((ret == -ECONNREFUSED) || (ret == -ETIMEDOUT))
+		goto rebind;
+
+	/*
+	 * Should never happen in non-blocking mode ?
+	 * See connect(2), connect(3p) and:
+	 * http://www.madore.org/~david/computers/connect-intr.html
+	 */
+	galv_assert_intern(ret != -EINTR);
+
+	galv_pdebug(-ret,
+	            "coupler: cannot complete client connection: "
+	            "unrecoverable error");
+	goto term;
 
 rebind:
 	if (!galv_timer_bkoff_defunct(galv_conn_timer(clnt))) {
@@ -110,7 +126,7 @@ term:
 	galv_conn_unpoll(clnt);
 	galv_conn_set_state(clnt, GALV_CONN_OPENED_STATE);
 
-	return ((ret != -EINTR) && (ret != -ENOMEM)) ? 0 : ret;
+	return (ret != -ENOMEM) ? 0 : ret;
 }
 
 /*
@@ -149,7 +165,13 @@ galv_coupler_expire_binding(struct etux_timer * __restrict timer)
 			galv_binder_on_connected(cpl->bind, clnt);
 			ret = galv_conn_on_bound(clnt, poll);
 			if (!ret || (ret == -EINTR))
-				/* TODO: is -EINTR really worth it ? Return 0 ? */
+				/*
+				 * When -EINTR is returned, galv_conn_on_bound()
+				 * *MUST* have completed its logic !
+				 * See definition of on_bound() connection
+				 * operations function pointer in <galv/conn.h>
+				 * for more infos.
+				 */
 				return;
 
 			galv_conn_unpoll(clnt);
@@ -182,10 +204,16 @@ galv_coupler_expire_binding(struct etux_timer * __restrict timer)
 
 	case -ECONNREFUSED: /* No remote peer is listening. */
 	case -ETIMEDOUT:    /* Connection attempt timeout. */
-	case -EINTR:        /* Signal occured before completion. */
 		break;
 
 	default:
+		/*
+		 * Should never happen in non-blocking mode ?
+		 * See connect(2), connect(3p) and:
+		 * http://www.madore.org/~david/computers/connect-intr.html
+		 */
+		galv_assert_intern(ret != -EINTR);
+
 		goto err;
 	}
 
@@ -255,6 +283,7 @@ galv_coupler_connect(struct galv_coupler * __restrict   coupler,
 	galv_conn_set_poller(client, poller);
 
 	ret = galv_binder_connect_clnt(coupler->bind, client, peer);
+
 	switch (ret) {
 	case 0:
 		ret = galv_conn_poll(client,
@@ -267,8 +296,14 @@ galv_coupler_connect(struct galv_coupler * __restrict   coupler,
 			galv_conn_repo_register(coupler->repo, client);
 			ret = galv_conn_on_bound(client, poller);
 			if (!ret || (ret == -EINTR))
-				/* TODO: is -EINTR really worth it ? Return 0 ? */
-				return 0;
+				/*
+				 * When -EINTR is returned, galv_conn_on_bound()
+				 * *MUST* have completed its logic !
+				 * See definition of on_bound() connection
+				 * operations function pointer in <galv/conn.h>
+				 * for more infos.
+				 */
+				return ret;
 
 			galv_conn_unpoll(client);
 
@@ -323,10 +358,14 @@ galv_coupler_connect(struct galv_coupler * __restrict   coupler,
 
 		goto err;
 
-	case -EINTR:        /* Signal occured before connect(2) started. */
-		return -EINTR;
-
 	default:
+		/*
+		 * Should never happen in non-blocking mode ?
+		 * See connect(2), connect(3p) and:
+		 * http://www.madore.org/~david/computers/connect-intr.html
+		 */
+		galv_assert_intern(ret != -EINTR);
+
 		goto err;
 	}
 

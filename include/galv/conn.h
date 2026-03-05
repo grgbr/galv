@@ -71,6 +71,16 @@ typedef void galv_conn_close_fn(struct galv_conn * __restrict,
                                 const struct upoll * __restrict);
 
 struct galv_conn_ops {
+	/*
+	 * Executed upon underlying socket "connected" event.
+	 *
+	 * Warning
+	 * Implementation *MUST* handle syscalls returning EINTR in a particular
+	 * manner. When a syscall returns EINTR, it should be restarted,
+	 * implementation *MUST* complete its logic entirely and return EINTR as
+	 * its final return code (so that main polling loop may be notified that
+	 * a signal occured).
+	 */
 	galv_conn_oper_fn *  on_bound;
 	galv_conn_oper_fn *  halt;
 	galv_conn_close_fn * close;

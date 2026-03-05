@@ -15,9 +15,6 @@ int main(void)
 	int                lsk;
 	int                err;
 	struct sockaddr_un local = UNSK_NAMED_ADDR(GALVUT_SRV_PATH);
-	struct sockaddr_un peer;
-	socklen_t          sz = sizeof(peer);
-	char               str[UNSK_NAMED_PATH_MAX];
 	const char *       msg;
 
 	lsk = unsk_open(SOCK_STREAM, SOCK_CLOEXEC);
@@ -46,7 +43,10 @@ int main(void)
 	}
 
 	while (true) {
-		int psk;
+		struct sockaddr_un peer;
+		socklen_t          sz = sizeof(peer);
+		int                psk;
+		char               str[UNSK_NAMED_PATH_MAX];
 
 		psk = unsk_accept(lsk, &peer, &sz, SOCK_CLOEXEC);
 		if (psk < 0) {
