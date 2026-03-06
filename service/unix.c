@@ -25,16 +25,14 @@ galv_unix_accept(int                                 fd,
 	galv_assert_intern(peer);
 	galv_assert_intern(!(flags & ETUX_SOCK_ACCEPT_INVALID_FLAGS));
 
-	int       sk;
-	socklen_t sz = sizeof(peer->cred);
+	int sk;
 
 	peer->addr.size = sizeof(peer->addr.data);
 	sk = unsk_accept(fd, &peer->addr.data, &peer->addr.size, flags);
 	if (sk < 0)
 		return sk;
 
-	unsk_getsockopt(sk, SO_PEERCRED, &peer->cred, &sz);
-	galv_assert_intern(sz == sizeof(peer->cred));
+	galv_unix_load_peer_cred(sk, &peer->cred);
 
 	return sk;
 }
@@ -92,8 +90,10 @@ galv_unix_adopt_create_conn(struct galv_adopt * __restrict          adopter,
 	                operations,
 	                (struct galv_dispatch *)acceptor);
 	unc->peer = peer;
+	unc->local.addr = ((struct galv_unix_adopt *)adopter)->bind_addr;
+	galv_unix_setup_cred(&unc->local.cred);
 
-	galv_unix_conn_debug(&unc->peer, "service connection created");
+	galv_unix_conn_debug(unc, "service connection created");
 
 	return &unc->base;
 
@@ -124,7 +124,7 @@ galv_unix_adopt_destroy_conn(struct galv_adopt * __restrict adopter,
 		                     "");
 	stroll_falloc_free(&adopter->alloc, connection);
 
-	galv_unix_conn_debug(&((const struct galv_unix_conn *)connection)->peer,
+	galv_unix_conn_debug((const struct galv_unix_conn *)connection,
 	                     "service connection destroyed");
 
 	return ret;
@@ -217,10 +217,9 @@ galv_unix_adopt_open(struct galv_unix_adopt * __restrict            adopter,
 	}
 
 	/* Build local bind address. */
-	adopter->bind_addr.size =
-		(socklen_t)offsetof(typeof(adopter->bind_addr.data), sun_path) +
-		(socklen_t)unsk_make_named_addr(&adopter->bind_addr.data,
-		                                config->bind_path);
+	adopter->bind_addr.size = (socklen_t)
+	                          unsk_make_named_addr(&adopter->bind_addr.data,
+	                                               config->bind_path);
 
 	/*
 	 * Bind to the given local filesystem pathname.

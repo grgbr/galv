@@ -41,6 +41,7 @@ struct galv_unix_endpt {
 struct galv_unix_conn {
 	struct galv_conn       base;
 	struct galv_unix_endpt peer;
+	struct galv_unix_endpt local;
 };
 
 #define galv_unix_assert_conn_api(_conn) \
@@ -58,8 +59,8 @@ struct galv_unix_conn {
 struct galv_unix_endpt;
 
 extern void
-galv_unix_conn_debug(const struct galv_unix_endpt * __restrict endpoint,
-                     const char * __restrict                   message)
+galv_unix_conn_debug(const struct galv_unix_conn * __restrict connection,
+                     const char * __restrict                  message)
 	__export_public;
 
 #else /* !defined(CONFIG_GALV_DEBUG) */
@@ -67,11 +68,28 @@ galv_unix_conn_debug(const struct galv_unix_endpt * __restrict endpoint,
 static inline
 void
 galv_unix_conn_debug(
-	const struct galv_unix_endpt * __restrict endpoint __unused,
-	const char * __restrict                   message __unused)
+	const struct galv_unix_conn * __restrict connection __unused,
+	const char * __restrict                  message __unused)
 {
 }
 
 #endif /* defined(CONFIG_GALV_DEBUG) */
+
+static inline
+void
+galv_unix_load_peer_cred(int fd, struct ucred * __restrict credential)
+{
+	galv_assert_intern(fd >= 0);
+	galv_assert_intern(credential);
+
+	socklen_t sz = sizeof(*credential);
+
+	unsk_getopt(fd, SO_PEERCRED, credential, &sz);
+	galv_assert_intern(sz == sizeof(*credential));
+}
+
+extern void
+galv_unix_setup_cred(struct ucred * __restrict credential)
+	__export_public;
 
 #endif /* _GALV_COMMON_UNIX_H */

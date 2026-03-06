@@ -36,9 +36,9 @@ _galv_unix_binder_connect_clnt(
 		 * -EINPROGRESS when the connection cannot be completed
 		 * immediately.
 		 */
-		galv_debug("unix: differing client connection establishment to "
-		           "[addr:%s]..",
-		           unsk_make_addr_string(str, &addr->data, addr->size));
+		galv_unix_conn_debug(
+			client,
+			"differing client connection establishment..");
 		return -EINPROGRESS;
 	}
 
@@ -70,6 +70,9 @@ galv_unix_binder_connect_clnt(
 	galv_assert_api(addr->data.sun_family == AF_UNIX);
 	galv_assert_api(unsk_is_named_addr(&addr->data, addr->size));
 	clnt->peer.addr = *addr;
+	clnt->local.addr.data.sun_family = AF_UNIX;
+	clnt->local.addr.size = sizeof(sa_family_t);
+	galv_unix_setup_cred(&clnt->local.cred);
 
 	return _galv_unix_binder_connect_clnt(binder, clnt);
 }
@@ -83,14 +86,11 @@ galv_unix_binder_on_connected(
 	struct galv_unix_conn *       clnt = (struct galv_unix_conn *)client;
 	const struct galv_unix_addr * addr = &clnt->peer.addr;
 	struct ucred *                cred = &clnt->peer.cred;
-	socklen_t                     sz = sizeof(*cred);
 	char                          str[UNSK_NAMED_PATH_MAX];
 
 	galv_assert_intern(addr->data.sun_family == AF_UNIX);
 	galv_assert_intern(unsk_is_named_addr(&addr->data, addr->size));
-
-	unsk_getsockopt(client->fd, SO_PEERCRED, cred, &sz);
-	galv_assert_intern(sz == sizeof(*cred));
+	galv_unix_load_peer_cred(client->fd, cred);
 
 	galv_ratelim_info("unix: client connection established to ",
 	                  "[addr:%s pid:%d uid:%d]",
@@ -207,9 +207,6 @@ galv_unix_binder_create_clnt(struct galv_binder * __restrict         binder,
 	                sk,
 	                operations,
 	                (struct galv_dispatch *)coupler);
-	clnt->peer.addr.size = 0;
-	clnt->peer.cred.pid = 0;
-	clnt->peer.cred.uid = 0;
 
 	galv_debug("unix: client connection created");
 
@@ -240,7 +237,7 @@ galv_unix_binder_destroy_clnt(struct galv_binder * __restrict binder,
 
 	stroll_falloc_free(&binder->alloc, client);
 
-	galv_unix_conn_debug(&((const struct galv_unix_conn *)client)->peer,
+	galv_unix_conn_debug((const struct galv_unix_conn *)client,
 	                     "client connection destroyed");
 
 	return ret;
