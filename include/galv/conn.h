@@ -121,6 +121,8 @@ struct galv_conn {
 	void *                          ctx;
 	struct galv_timer               timer;
 	struct stroll_dlist_node        repo;
+	char *                          local;
+	char *                          peer;
 };
 
 #define galv_conn_assert_api(_conn) \

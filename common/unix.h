@@ -54,26 +54,25 @@ struct galv_unix_conn {
 	galv_conn_assert_intern(&(_conn)->base); \
 	galv_unix_assert_endpt_intern(&(_conn)->peer)
 
-#if defined(CONFIG_GALV_DEBUG)
+#if defined(CONFIG_GALV_LOG)
 
-struct galv_unix_endpt;
-
-extern void
-galv_unix_conn_debug(const struct galv_unix_conn * __restrict connection,
-                     const char * __restrict                  message)
+extern int
+galv_unix_make_endpt_string(
+	const struct galv_unix_endpt * __restrict endpoint,
+	char ** __restrict                        string)
 	__export_public;
 
-#else /* !defined(CONFIG_GALV_DEBUG) */
+#else  /* !defined(CONFIG_GALV_LOG) */
 
 static inline
-void
-galv_unix_conn_debug(
-	const struct galv_unix_conn * __restrict connection __unused,
-	const char * __restrict                  message __unused)
+int
+galv_unix_make_endpt_string(const struct galv_unix_endpt * __restrict endpoint,
+                            char ** __restrict                        string)
 {
+	return 0;
 }
 
-#endif /* defined(CONFIG_GALV_DEBUG) */
+#endif /* defined(CONFIG_GALV_LOG) */
 
 static inline
 void

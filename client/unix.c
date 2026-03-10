@@ -36,16 +36,15 @@ _galv_unix_binder_connect_clnt(
 		 * -EINPROGRESS when the connection cannot be completed
 		 * immediately.
 		 */
-		galv_unix_conn_debug(
-			client,
-			"differing client connection establishment..");
+		galv_conn_debug(&client->base,
+		                "differing client connection establishment..");
 		return -EINPROGRESS;
 	}
 
-	galv_ratelim_pinfo(-ret,
-	                   "unix: cannot establish client connection to ",
-	                   "[addr:%s]",
-	                   unsk_make_addr_string(str, &addr->data, addr->size));
+	unsk_make_addr_string(str, &addr->data, addr->size);
+	galv_conn_pdebug(-ret,
+	                 "unix: cannot establish client connection to '%s'",
+	                 str);
 
 	/*
 	 * When no one is listening, i.e, no (named) socket file is existing,
@@ -86,17 +85,12 @@ galv_unix_binder_on_connected(
 	struct galv_unix_conn *       clnt = (struct galv_unix_conn *)client;
 	const struct galv_unix_addr * addr = &clnt->peer.addr;
 	struct ucred *                cred = &clnt->peer.cred;
-	char                          str[UNSK_NAMED_PATH_MAX];
 
 	galv_assert_intern(addr->data.sun_family == AF_UNIX);
 	galv_assert_intern(unsk_is_named_addr(&addr->data, addr->size));
 	galv_unix_load_peer_cred(client->fd, cred);
 
-	galv_ratelim_info("unix: client connection established to ",
-	                  "[addr:%s pid:%d uid:%d]",
-	                   unsk_make_addr_string(str, &addr->data, addr->size),
-	                   cred->pid,
-	                   cred->uid);
+	galv_conn_info(client, "unix: client connection established");
 }
 
 static
@@ -237,8 +231,7 @@ galv_unix_binder_destroy_clnt(struct galv_binder * __restrict binder,
 
 	stroll_falloc_free(&binder->alloc, client);
 
-	galv_unix_conn_debug((const struct galv_unix_conn *)client,
-	                     "client connection destroyed");
+	galv_conn_debug(client, "client connection destroyed");
 
 	return ret;
 }

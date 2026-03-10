@@ -93,7 +93,7 @@ galv_unix_adopt_create_conn(struct galv_adopt * __restrict          adopter,
 	unc->local.addr = ((struct galv_unix_adopt *)adopter)->bind_addr;
 	galv_unix_setup_cred(&unc->local.cred);
 
-	galv_unix_conn_debug(unc, "service connection created");
+	galv_conn_debug(&unc->base, "service connection created");
 
 	return &unc->base;
 
@@ -124,8 +124,7 @@ galv_unix_adopt_destroy_conn(struct galv_adopt * __restrict adopter,
 		                     "");
 	stroll_falloc_free(&adopter->alloc, connection);
 
-	galv_unix_conn_debug((const struct galv_unix_conn *)connection,
-	                     "service connection destroyed");
+	galv_conn_debug(connection, "service connection destroyed");
 
 	return ret;
 }
