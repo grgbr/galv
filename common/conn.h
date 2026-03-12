@@ -43,65 +43,95 @@
 	galv_assert_intern((_conn)->link <= GALV_CONN_ENDED_LINK); \
 	galv_assert_intern((_conn)->dispatch)
 
-#define galv_conn_log(_conn, _severity, _format, ...) \
+#define galv_conn_log(_conn, _severity, _pref, _format, ...) \
 	galv_log(_severity, \
-	         "unix: %s -> %s: " _format, \
+	         _pref ": %s -> %s: " _format, \
 	         (_conn)->local, \
 	         (_conn)->peer, \
 	         ## __VA_ARGS__)
 
-#define galv_conn_plog(_conn, _severity, _code, _format, ...) \
+#define galv_conn_plog(_conn, _severity, _code, _pref, _format, ...) \
 	galv_plog(_severity, \
 	          _code, \
-	          "unix: %s -> %s: " _format, \
+	          _pref ": %s -> %s: " _format, \
 	          (_conn)->local, \
 	          (_conn)->peer, \
 	          ## __VA_ARGS__)
 
-#define galv_conn_err(_conn, _format, ...) \
-	galv_conn_log(_conn, ELOG_ERR_SEVERITY, _format, ## __VA_ARGS__)
+#define galv_conn_err(_conn, _pref, _format, ...) \
+	galv_conn_log(_conn, ELOG_ERR_SEVERITY, _pref, _format, ## __VA_ARGS__)
 
-#define galv_conn_perr(_conn, _code, _format, ...) \
-	galv_conn_plog(_conn, ELOG_ERR_SEVERITY, _code, _format, ## __VA_ARGS__)
+#define galv_conn_perr(_conn, _code, _pref, _format, ...) \
+	galv_conn_plog(_conn, \
+	               ELOG_ERR_SEVERITY, \
+	               _code, \
+	               _pref, \
+	               _format, \
+	               ## __VA_ARGS__)
 
-#define galv_conn_warn(_conn, _format, ...) \
-	galv_conn_log(_conn, ELOG_WARNING_SEVERITY, _format, ## __VA_ARGS__)
+#define galv_conn_warn(_conn, _pref, _format, ...) \
+	galv_conn_log(_conn, \
+	              ELOG_WARNING_SEVERITY, \
+	              _pref, \
+	              _format, \
+	              ## __VA_ARGS__)
 
-#define galv_conn_pwarn(_conn, _code, _format, ...) \
+#define galv_conn_pwarn(_conn, _code, _pref, _format, ...) \
 	galv_conn_plog(_conn, \
 	               ELOG_WARNING_SEVERITY, \
 	               _code, \
+	               _pref, \
 	               _format, \
 	               ## __VA_ARGS__)
 
-#define galv_conn_notice(_conn, _format, ...) \
-	galv_conn_log(_conn, ELOG_NOTICE_SEVERITY, _format, ## __VA_ARGS__)
+#define galv_conn_notice(_conn, _pref, _format, ...) \
+	galv_conn_log(_conn, \
+	              ELOG_NOTICE_SEVERITY, \
+	              _pref, \
+	              _format, \
+	              ## __VA_ARGS__)
 
-#define galv_conn_pnotice(_conn, _code, _format, ...) \
+#define galv_conn_pnotice(_conn, _code, _pref, _format, ...) \
 	galv_conn_plog(_conn, \
 	               ELOG_NOTICE_SEVERITY, \
 	               _code, \
+	               _pref, \
 	               _format, \
 	               ## __VA_ARGS__)
 
-#define galv_conn_info(_conn, _format, ...) \
-	galv_conn_log(_conn, ELOG_INFO_SEVERITY, _format, ## __VA_ARGS__)
+#define galv_conn_info(_conn, _pref, _format, ...) \
+	galv_conn_log(_conn, ELOG_INFO_SEVERITY, _pref, _format, ## __VA_ARGS__)
 
-#define galv_conn_pinfo(_conn, _code, _format, ...) \
+#define galv_conn_pinfo(_conn, _code, _pref, _format, ...) \
 	galv_conn_plog(_conn, \
 	               ELOG_INFO_SEVERITY, \
 	               _code, \
+	               _pref, \
 	               _format, \
 	               ## __VA_ARGS__)
 
 #if defined(CONFIG_GALV_DEBUG)
 
-#define galv_conn_debug(_conn, _format, ...) \
-	galv_conn_log(_conn, ELOG_DEBUG_SEVERITY, _format, ## __VA_ARGS__)
+#define galv_conn_debug(_conn, _pref, _format, ...) \
+	galv_conn_log(_conn, \
+	              ELOG_DEBUG_SEVERITY, \
+	              _pref, \
+	              _format, \
+	              ## __VA_ARGS__)
+
+#define galv_conn_pdebug(_conn, _code, _pref, _format, ...) \
+	galv_conn_plog(_conn, \
+	               ELOG_DEBUG_SEVERITY, \
+	               _code, \
+	               _pref, \
+	               _format, \
+	               ## __VA_ARGS__)
 
 #else  /* !defined(CONFIG_GALV_DEBUG) */
 
-#define galv_conn_debug(_conn, _format, ...)
+#define galv_conn_debug(_conn, _pref, _format, ...)
+
+#define galv_conn_pdebug(_conn, _code, _pref, _format, ...)
 
 #endif /* defined(CONFIG_GALV_DEBUG) */
 
@@ -243,7 +273,6 @@ extern void
 galv_conn_setup(struct galv_conn * __restrict           connection,
                 int                                     fd,
                 const struct galv_conn_ops * __restrict operations,
-                struct galv_dispatch * __restrict       dispatcher)
-	__export_public;
+                struct galv_dispatch * __restrict       dispatcher);
 
 #endif /* _GALV_COMMON_CONN_H */

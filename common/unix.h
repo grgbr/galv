@@ -31,12 +31,12 @@ struct galv_unix_endpt {
 #define galv_unix_assert_endpt_api(_endpt) \
 	galv_assert_api(_endpt); \
 	galv_unix_assert_addr_api(&(_endpt)->addr); \
-	galv_assert_api((_endpt)->cred.pid > 0)
+	galv_assert_api((_endpt)->cred.pid >= 0)
 
 #define galv_unix_assert_endpt_intern(_endpt) \
 	galv_assert_intern(_endpt); \
 	galv_unix_assert_addr_intern(&(_endpt)->addr); \
-	galv_assert_intern((_endpt)->cred.pid > 0)
+	galv_assert_intern((_endpt)->cred.pid >= 0)
 
 struct galv_unix_conn {
 	struct galv_conn       base;
@@ -56,20 +56,21 @@ struct galv_unix_conn {
 
 #if defined(CONFIG_GALV_LOG)
 
-extern int
-galv_unix_make_endpt_string(
-	const struct galv_unix_endpt * __restrict endpoint,
-	char ** __restrict                        string)
+extern void
+galv_unix_make_endpt_string(char * __restrict                         string,
+                            const struct galv_unix_endpt * __restrict endpoint)
 	__export_public;
 
 #else  /* !defined(CONFIG_GALV_LOG) */
 
 static inline
-int
-galv_unix_make_endpt_string(const struct galv_unix_endpt * __restrict endpoint,
-                            char ** __restrict                        string)
+void
+galv_unix_make_endpt_string(
+	char * __restrict                         string __unused,
+	const struct galv_unix_endpt * __restrict endpoint __unused)
 {
-	return 0;
+	galv_assert_intern(string);
+	galv_unix_assert_endpt_intern(endpoint);
 }
 
 #endif /* defined(CONFIG_GALV_LOG) */
@@ -89,6 +90,18 @@ galv_unix_load_peer_cred(int fd, struct ucred * __restrict credential)
 
 extern void
 galv_unix_setup_cred(struct ucred * __restrict credential)
+	__export_public;
+
+extern struct galv_unix_conn *
+galv_unix_create_conn(struct stroll_falloc *                  allocator,
+                      int                                     fd,
+                      const struct galv_conn_ops * __restrict operations,
+                      struct galv_dispatch * __restrict       dispatcher)
+	__export_public;
+
+extern int
+galv_unix_destroy_conn(struct stroll_falloc * __restrict  allocator,
+                       struct galv_unix_conn * __restrict connection)
 	__export_public;
 
 #endif /* _GALV_COMMON_UNIX_H */

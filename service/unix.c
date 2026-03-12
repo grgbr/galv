@@ -73,7 +73,10 @@ galv_unix_adopt_create_conn(struct galv_adopt * __restrict          adopter,
 	}
 
 	/* Allocate UNIX connection. */
-	unc = stroll_falloc_alloc(&adopter->alloc);
+	unc = galv_unix_create_conn(&adopter->alloc,
+	                            fd,
+	                            operations,
+	                            (struct galv_dispatch *)acceptor);
 	if (!unc) {
 		err = errno;
 		unsk_close(fd);
@@ -84,26 +87,23 @@ galv_unix_adopt_create_conn(struct galv_adopt * __restrict          adopter,
 		goto err;
 	}
 
-	/* Setup connection internal state. */
-	galv_conn_setup(&unc->base,
-	                fd,
-	                operations,
-	                (struct galv_dispatch *)acceptor);
 	unc->peer = peer;
+	galv_unix_make_endpt_string(unc->base.peer, &unc->peer);
+
 	unc->local.addr = ((struct galv_unix_adopt *)adopter)->bind_addr;
 	galv_unix_setup_cred(&unc->local.cred);
+	galv_unix_make_endpt_string(unc->base.local, &unc->local);
 
-	galv_conn_debug(&unc->base, "service connection created");
+	galv_conn_info(&unc->base, "unix", "service connection established");
 
 	return &unc->base;
 
 err:
-	galv_ratelim_pnotice(err,
-	                     "unix: cannot create service connection",
-	                     ": %s",
-	                     msg);
-	errno = err;
+	galv_pnotice(err,
+	             "unix: cannot create service connection: %s",
+	             msg);
 
+	errno = err;
 	return NULL;
 }
 
@@ -112,21 +112,13 @@ int
 galv_unix_adopt_destroy_conn(struct galv_adopt * __restrict adopter,
                              struct galv_conn * __restrict  connection)
 {
-	galv_unix_assert_adopt_api((const struct galv_unix_adopt *)adopter);
-	galv_conn_assert_intern(connection);
+	galv_unix_assert_adopt_intern((struct galv_unix_adopt *)adopter);
+	galv_unix_assert_conn_intern((struct galv_unix_conn *)connection);
 
-	int ret;
+	galv_conn_info(connection, "unix", "destroying service connection..");
 
-	ret = unsk_close(connection->fd);
-	if (ret && (ret != -EINTR))
-		galv_ratelim_pnotice(-ret,
-		                     "unix: failed to close service socket",
-		                     "");
-	stroll_falloc_free(&adopter->alloc, connection);
-
-	galv_conn_debug(connection, "service connection destroyed");
-
-	return ret;
+	return galv_unix_destroy_conn(&adopter->alloc,
+	                              (struct galv_unix_conn *)connection);
 }
 
 static const struct galv_adopt_ops galv_unix_adopt_ops = {

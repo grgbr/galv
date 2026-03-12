@@ -55,8 +55,8 @@ int main(void)
 			goto close_local;
 		}
 
-		galvut_srv_log("connection request accepted from '%s'.\n",
-		               unsk_make_addr_string(str, &peer, sz));
+		unsk_make_addr_string(str, &peer, sz);
+		galvut_srv_log("connection request accepted from '%s'.\n", str);
 
 		sleep(1);
 

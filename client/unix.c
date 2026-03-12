@@ -18,9 +18,11 @@ _galv_unix_binder_connect_clnt(
 	const struct galv_binder * __restrict binder __unused,
 	struct galv_unix_conn * __restrict    client)
 {
+	galv_assert_intern(binder);
+	galv_assert_intern(client);
+
 	const struct galv_unix_addr * addr = &client->peer.addr;
 	int                           ret;
-	char                          str[UNSK_NAMED_PATH_MAX];
 
 	galv_assert_intern(addr->data.sun_family == AF_UNIX);
 	galv_assert_intern(unsk_is_named_addr(&addr->data, addr->size));
@@ -37,18 +39,22 @@ _galv_unix_binder_connect_clnt(
 		 * immediately.
 		 */
 		galv_conn_debug(&client->base,
-		                "differing client connection establishment..");
+		                "unix",
+		                "differing client connection..");
 		return -EINPROGRESS;
 	}
 
-	unsk_make_addr_string(str, &addr->data, addr->size);
-	galv_conn_pdebug(-ret,
-	                 "unix: cannot establish client connection to '%s'",
-	                 str);
+	galv_conn_pinfo(&client->base,
+	                -ret,
+	                "unix",
+	                "cannot establish client connection");
 
 	/*
-	 * When no one is listening, i.e, no (named) socket file is existing,
-	 * connect(2) on a UNIX socket returns ENOENT.
+	 * When no one is listen(2)'ing, i.e, no (named) socket file is
+	 * existing, connect(2) on a UNIX socket returns ENOENT.
+	 * Also note that, connect(2) may return ECONNREFUSED when the named
+	 * socket filesystem path exists without any process listen(2)'ing on
+	 * it...
 	 * Make error code consistent with other socket types by returning
 	 * ECONNREFUSED.
 	 */
@@ -68,29 +74,16 @@ galv_unix_binder_connect_clnt(
 
 	galv_assert_api(addr->data.sun_family == AF_UNIX);
 	galv_assert_api(unsk_is_named_addr(&addr->data, addr->size));
+
 	clnt->peer.addr = *addr;
+	galv_unix_make_endpt_string(client->peer, &clnt->peer);
+
 	clnt->local.addr.data.sun_family = AF_UNIX;
 	clnt->local.addr.size = sizeof(sa_family_t);
 	galv_unix_setup_cred(&clnt->local.cred);
+	galv_unix_make_endpt_string(client->local, &clnt->local);
 
 	return _galv_unix_binder_connect_clnt(binder, clnt);
-}
-
-static
-void
-galv_unix_binder_on_connected(
-	const struct galv_binder * __restrict binder __unused,
-	struct galv_conn * __restrict         client)
-{
-	struct galv_unix_conn *       clnt = (struct galv_unix_conn *)client;
-	const struct galv_unix_addr * addr = &clnt->peer.addr;
-	struct ucred *                cred = &clnt->peer.cred;
-
-	galv_assert_intern(addr->data.sun_family == AF_UNIX);
-	galv_assert_intern(unsk_is_named_addr(&addr->data, addr->size));
-	galv_unix_load_peer_cred(client->fd, cred);
-
-	galv_conn_info(client, "unix: client connection established");
 }
 
 static
@@ -102,60 +95,45 @@ galv_unix_binder_reconnect_clnt(
 	galv_assert_intern((binder->sock_type == SOCK_STREAM) ||
 	                   (binder->sock_type == SOCK_SEQPACKET));
 
-	struct galv_unix_conn * clnt = (struct galv_unix_conn *)client;
-	int                     ret;
-	const char *            msg;
-
-#if defined(_GALV_UNIX_PORTABLE_CLNT)
-	/*
-	 * As stated into connect(2), we should consider the state of the socket
-	 * as unspecified in case of failure: open a new socket, close the old
-	 * one and try to perform the connect(2) again.
-	 *
-	 * Note that we prefer to open the new socket first and close the old
-	 * one afterward so that a potential socket(2) failure does not leave
-	 * the whole Galv internal state machine with no valid file descriptor
-	 * at all upon return from this function (galv_coupler, galv_conn and
-	 * galv_unix_conn highly depend on its presence).
-	 *
-	 * Note: This does not seem to be necessary on Linux...
-	 */
-
-	/*
-	 * Open the new socket first using the flags that were passed at initial
-	 * opening time...
-	 */
-	ret = unsk_open(binder->sock_type,
-	                SOCK_NONBLOCK | etux_sock_getfd(client->fd));
-	if (ret < 0) {
-		msg = "failed to open";
-		goto err;
-	}
-
-	/*
-	 *  ... then close the old one to keep a valid file descriptor in
-	 * `client->fd' in case of failure.
-	 */
-	unsk_close(client->fd);
-	client->fd = ret;
-#endif /* defined(_GALV_UNIX_PORTABLE_CLNT) */
+	galv_conn_debug(client, "unix", "retrying client connection..");
 
 	/* Connect(2) again using currently stored remote peer address. */
-	ret = _galv_unix_binder_connect_clnt(binder, clnt);
-	if (ret) {
-		msg = "failed to connect";
-		goto err;
-	}
+	return _galv_unix_binder_connect_clnt(binder,
+	                                      (struct galv_unix_conn *)client);
+}
 
-	return 0;
+static
+void
+galv_unix_binder_on_connected(
+	const struct galv_binder * __restrict binder __unused,
+	struct galv_conn * __restrict         client)
+{
+	struct galv_unix_conn *       clnt = (struct galv_unix_conn *)client;
+	const struct galv_unix_addr * addr = &clnt->peer.addr;
 
-err:
-	if (ret != -ENOMEM)
-		galv_ratelim_pnotice(-ret,
-		                     "unix: cannot reconnect client connection",
-		                     ": %s",
-		                     msg);
-	return ret;
+	galv_assert_intern(addr->data.sun_family == AF_UNIX);
+	galv_assert_intern(unsk_is_named_addr(&addr->data, addr->size));
+
+	galv_unix_load_peer_cred(client->fd, &clnt->peer.cred);
+	galv_unix_make_endpt_string(client->peer, &clnt->peer);
+
+	galv_conn_info(client, "unix", "client connection established");
+}
+
+static
+void
+galv_unix_binder_clear_endpt(char * __restrict                   string,
+                             struct galv_unix_endpt * __restrict endpoint)
+{
+	galv_assert_intern(string);
+	galv_assert_intern(endpoint);
+
+	memcpy(string, "??[?]", sizeof("??[?]"));
+
+	endpoint->addr.data.sun_family = AF_UNIX;
+	endpoint->addr.size = sizeof(sa_family_t);
+
+	memset(&endpoint->cred, 0, sizeof(endpoint->cred));
 }
 
 static
@@ -168,28 +146,31 @@ galv_unix_binder_create_clnt(struct galv_binder * __restrict         binder,
 	galv_assert_intern((binder->sock_type == SOCK_STREAM) ||
 	                   (binder->sock_type == SOCK_SEQPACKET));
 
-	int                     sk;
+	int                     fd;
 	int                     err;
 	struct galv_unix_conn * clnt;
 	const char *            msg;
 
-	sk = unsk_open(binder->sock_type, SOCK_NONBLOCK | flags);
-	if (sk < 0) {
-		if (sk == -ENOMEM) {
+	fd = unsk_open(binder->sock_type, SOCK_NONBLOCK | flags);
+	if (fd < 0) {
+		if (fd == -ENOMEM) {
 			errno = ENOMEM;
 			return NULL;
 		}
 
-		err = -sk;
+		err = -fd;
 		msg = "failed to open";
 		goto err;
 	}
 
 	/* Allocate UNIX connection. */
-	clnt = stroll_falloc_alloc(&binder->alloc);
+	clnt = galv_unix_create_conn(&binder->alloc,
+	                             fd,
+	                             operations,
+	                             (struct galv_dispatch *)coupler);
 	if (!clnt) {
 		err = errno;
-		unsk_close(sk);
+		unsk_close(fd);
 		if (err == ENOMEM)
 			return NULL;
 
@@ -197,22 +178,19 @@ galv_unix_binder_create_clnt(struct galv_binder * __restrict         binder,
 		goto err;
 	}
 
-	galv_conn_setup(&clnt->base,
-	                sk,
-	                operations,
-	                (struct galv_dispatch *)coupler);
+	galv_unix_binder_clear_endpt(clnt->base.peer, &clnt->peer);
+	galv_unix_binder_clear_endpt(clnt->base.local, &clnt->local);
 
-	galv_debug("unix: client connection created");
+	galv_conn_debug(&clnt->base, "unix", "client connection created");
 
 	return &clnt->base;
 
 err:
-	galv_ratelim_pnotice(err,
-	                     "unix: cannot create client connection",
-	                     ": %s",
-	                     msg);
-	errno = err;
+	galv_pnotice(err,
+	             "unix: cannot create client connection: %s",
+	             msg);
 
+	errno = err;
 	return NULL;
 }
 
@@ -221,19 +199,12 @@ int
 galv_unix_binder_destroy_clnt(struct galv_binder * __restrict binder,
                               struct galv_conn * __restrict   client)
 {
-	int ret;
+	galv_unix_assert_conn_intern((struct galv_unix_conn *)client);
 
-	ret = unsk_close(client->fd);
-	if (ret && (ret != -EINTR))
-		galv_ratelim_pnotice(-ret,
-		                     "unix: failed to close client socket",
-		                     "");
+	galv_conn_info(client, "unix", "destroying client connection..");
 
-	stroll_falloc_free(&binder->alloc, client);
-
-	galv_conn_debug(client, "client connection destroyed");
-
-	return ret;
+	return galv_unix_destroy_conn(&binder->alloc,
+	                              (struct galv_unix_conn *)client);
 }
 
 static const struct galv_binder_ops galv_unix_binder_ops = {
