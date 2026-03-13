@@ -49,6 +49,7 @@ galv_coupler_dispatch_clnt(struct upoll_worker * worker,
 	const struct galv_coupler * cpl = (const struct galv_coupler *)
 	                                  galv_conn_dispatcher(clnt);
 	int                         ret;
+	struct galv_timer *         tmr;
 	const char *                msg;
 
 	galv_conn_assert_intern(clnt);
@@ -101,7 +102,8 @@ galv_coupler_dispatch_clnt(struct upoll_worker * worker,
 	goto term;
 
 rebind:
-	if (!galv_timer_bkoff_defunct(galv_conn_timer(clnt))) {
+	tmr = galv_conn_timer(clnt);
+	if (!galv_timer_bkoff_defunct(tmr)) {
 		/*
 		 * Schedule a reconnection operation.
 		 * Do not register to poller yet since the socket would be
@@ -109,7 +111,7 @@ rebind:
 		 * Arm the reconnection timer instead and get out.
 		 */
 		galv_conn_unpoll(clnt);
-		galv_timer_arm_bkoff(galv_conn_timer(clnt));
+		galv_timer_arm_bkoff(tmr);
 		galv_conn_pdebug(clnt,
 		                 -ret,
 		                 "coupler",
