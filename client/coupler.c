@@ -49,6 +49,7 @@ galv_coupler_dispatch_clnt(struct upoll_worker * worker,
 	const struct galv_coupler * cpl = (const struct galv_coupler *)
 	                                  galv_conn_dispatcher(clnt);
 	int                         ret;
+	const char *                msg;
 
 	galv_conn_assert_intern(clnt);
 	galv_assert_intern(clnt->state == GALV_CONN_BINDING_STATE);
@@ -62,7 +63,7 @@ galv_coupler_dispatch_clnt(struct upoll_worker * worker,
 		 * Nothing specific to do as next syscall called with our socket
 		 * fd as argument should return the error as errno...
 		 */
-		galv_ratelim_notice("coupler: socket error ignored", "");
+		galv_conn_debug(clnt, "coupler", "socket error ignored");
 
 	if (events & EPOLLHUP) {
 		ret = -ECONNRESET;
@@ -96,32 +97,35 @@ galv_coupler_dispatch_clnt(struct upoll_worker * worker,
 	 */
 	galv_assert_intern(ret != -EINTR);
 
-	galv_pdebug(-ret,
-	            "coupler: cannot complete client connection: "
-	            "unrecoverable error");
+	msg = "unrecoverable error";
 	goto term;
 
 rebind:
 	if (!galv_timer_bkoff_defunct(galv_conn_timer(clnt))) {
 		/*
-		 * Reschedule a reconnection operation.
+		 * Schedule a reconnection operation.
 		 * Do not register to poller yet since the socket would be
 		 * notified with an EPOLLHUP event at next polling round.
 		 * Arm the reconnection timer instead and get out.
 		 */
 		galv_conn_unpoll(clnt);
 		galv_timer_arm_bkoff(galv_conn_timer(clnt));
-		galv_pdebug(-ret,
-		            "coupler: cannot complete client connection: "
-		            "client reconnection scheduled");
+		galv_conn_pdebug(clnt,
+		                 -ret,
+		                 "coupler",
+		                 "cannot complete client connection: "
+		                 "reconnection scheduled");
 		return 0;
 	}
 
-	galv_pdebug(-ret,
-	            "coupler: cannot complete client connection: "
-	            "maximum reconnection attempts reached");
+	msg = "maximum attempts reached";
 
 term:
+	galv_conn_pnotice(clnt,
+	                  -ret,
+	                  "coupler",
+	                  "cannot complete client connection: %s",
+	                  msg);
 	galv_conn_repo_unregister(cpl->repo, clnt);
 	galv_conn_unpoll(clnt);
 	galv_conn_set_state(clnt, GALV_CONN_OPENED_STATE);
@@ -151,8 +155,6 @@ galv_coupler_expire_binding(struct etux_timer * __restrict timer)
 	const struct upoll *        poll = galv_conn_poller(clnt);
 	int                         ret;
 	const char *                msg = "unrecoverable error";
-
-	galv_debug("coupler: trying to reconnect client..");
 
 	ret = galv_binder_reconnect_clnt(cpl->bind, clnt);
 	switch (ret) {
@@ -225,17 +227,26 @@ galv_coupler_expire_binding(struct etux_timer * __restrict timer)
 		 * Arm the reconnection timer instead and get out.
 		 */
 		galv_timer_arm_bkoff(tmr);
-		galv_debug("coupler: client reconnection scheduled");
+		galv_conn_pdebug(clnt,
+		                 -ret,
+		                 "coupler",
+		                 "client connection timer: "
+		                 "reconnection scheduled");
 		return;
 	}
 
-	galv_debug("coupler: maximum reconnection attempts reached");
+	msg = "maximum attempts reached";
 
 err:
-	galv_pdebug(-ret, "coupler: cannot reconnect client: %s", msg);
+	galv_conn_pnotice(clnt,
+	                  -ret,
+	                  "coupler",
+	                  "client connection timer: %s",
+	                  msg);
 term:
 	galv_conn_repo_unregister(cpl->repo, clnt);
 	galv_conn_set_state(clnt, GALV_CONN_OPENED_STATE);
+
 	return;
 }
 
@@ -283,7 +294,6 @@ galv_coupler_connect(struct galv_coupler * __restrict   coupler,
 	galv_conn_set_poller(client, poller);
 
 	ret = galv_binder_connect_clnt(coupler->bind, client, peer);
-
 	switch (ret) {
 	case 0:
 		ret = galv_conn_poll(client,
@@ -312,8 +322,7 @@ galv_coupler_connect(struct galv_coupler * __restrict   coupler,
 					break;
 			}
 			else
-				galv_debug("coupler: "
-				           "client reconnection disabled");
+				msg = "reconnection disabled";
 
 			galv_conn_repo_unregister(coupler->repo, client);
 			galv_conn_set_state(client, GALV_CONN_OPENED_STATE);
@@ -354,7 +363,7 @@ galv_coupler_connect(struct galv_coupler * __restrict   coupler,
 			break;
 		}
 		else
-			galv_debug("coupler: client reconnection disabled");
+			msg = "reconnection disabled";
 
 		goto err;
 
@@ -376,12 +385,19 @@ galv_coupler_connect(struct galv_coupler * __restrict   coupler,
 	 * Arm the reconnection timer instead and get out.
 	 */
 	galv_timer_arm_bkoff(tmr);
-	galv_debug("coupler: client reconnection scheduled");
+	galv_conn_pdebug(client,
+	                 -ret,
+	                 "coupler",
+	                 "cannot connect client: reconnection scheduled");
 
 	return -EINPROGRESS;
 
 err:
-	galv_pdebug(-ret, "coupler: initial client connection failed: %s", msg);
+	galv_conn_pnotice(client,
+	                  -ret,
+	                  "coupler",
+	                  "cannot connect client: %s",
+	                  msg);
 
 	return ret;
 }
