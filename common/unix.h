@@ -47,12 +47,14 @@ struct galv_unix_conn {
 #define galv_unix_assert_conn_api(_conn) \
 	galv_assert_api(_conn); \
 	galv_conn_assert_api(&(_conn)->base); \
-	galv_unix_assert_endpt_api(&(_conn)->peer)
+	galv_unix_assert_endpt_api(&(_conn)->peer); \
+	galv_unix_assert_endpt_api(&(_conn)->local)
 
 #define galv_unix_assert_conn_intern(_conn) \
 	galv_assert_intern(_conn); \
 	galv_conn_assert_intern(&(_conn)->base); \
-	galv_unix_assert_endpt_intern(&(_conn)->peer)
+	galv_unix_assert_endpt_intern(&(_conn)->peer); \
+	galv_unix_assert_endpt_intern(&(_conn)->local)
 
 #if defined(CONFIG_GALV_LOG)
 

@@ -271,7 +271,7 @@ galv_accept_dispatch(struct upoll_worker * worker,
 		 * Nothing specific to do as next syscall called with our socket
 		 * fd as argument should return the error as errno...
 		 */
-		galv_ratelim_notice("acceptor: socket error ignored", "");
+		galv_debug("acceptor: socket error ignored");
 
 		if (!(events & EPOLLIN))
 			return 0;

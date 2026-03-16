@@ -18,14 +18,8 @@ _galv_unix_binder_connect_clnt(
 	const struct galv_binder * __restrict binder __unused,
 	struct galv_unix_conn * __restrict    client)
 {
-	galv_assert_intern(binder);
-	galv_assert_intern(client);
-
 	const struct galv_unix_addr * addr = &client->peer.addr;
 	int                           ret;
-
-	galv_assert_intern(addr->data.sun_family == AF_UNIX);
-	galv_assert_intern(unsk_is_named_addr(&addr->data, addr->size));
 
 	ret = unsk_connect(client->base.fd, &addr->data, addr->size);
 	galv_assert_intern(ret <= 0);
@@ -68,12 +62,14 @@ galv_unix_binder_connect_clnt(
 	struct galv_conn * __restrict         client,
 	const struct sockaddr * __restrict    peer)
 {
+	galv_assert_api((binder->sock_type == SOCK_STREAM) ||
+	                (binder->sock_type == SOCK_SEQPACKET));
+	galv_unix_assert_conn_api((struct galv_unix_conn *)client);
+	galv_unix_assert_addr_api((const struct galv_unix_addr *)peer);
+
 	struct galv_unix_conn *       clnt = (struct galv_unix_conn *)client;
 	const struct galv_unix_addr * addr = (const struct galv_unix_addr *)
 	                                     peer;
-
-	galv_assert_api(addr->data.sun_family == AF_UNIX);
-	galv_assert_api(unsk_is_named_addr(&addr->data, addr->size));
 
 	clnt->peer.addr = *addr;
 	galv_unix_make_endpt_string(client->peer, &clnt->peer);
@@ -92,8 +88,9 @@ galv_unix_binder_reconnect_clnt(
 	const struct galv_binder * __restrict binder __unused,
 	struct galv_conn * __restrict         client)
 {
-	galv_assert_intern((binder->sock_type == SOCK_STREAM) ||
-	                   (binder->sock_type == SOCK_SEQPACKET));
+	galv_assert_api((binder->sock_type == SOCK_STREAM) ||
+	                (binder->sock_type == SOCK_SEQPACKET));
+	galv_unix_assert_conn_api((struct galv_unix_conn *)client);
 
 	galv_conn_debug(client, "unix", "retrying client connection..");
 
@@ -108,11 +105,11 @@ galv_unix_binder_on_connected(
 	const struct galv_binder * __restrict binder __unused,
 	struct galv_conn * __restrict         client)
 {
-	struct galv_unix_conn *       clnt = (struct galv_unix_conn *)client;
-	const struct galv_unix_addr * addr = &clnt->peer.addr;
+	galv_assert_api((binder->sock_type == SOCK_STREAM) ||
+	                (binder->sock_type == SOCK_SEQPACKET));
+	galv_unix_assert_conn_api((struct galv_unix_conn *)client);
 
-	galv_assert_intern(addr->data.sun_family == AF_UNIX);
-	galv_assert_intern(unsk_is_named_addr(&addr->data, addr->size));
+	struct galv_unix_conn * clnt = (struct galv_unix_conn *)client;
 
 	galv_unix_load_peer_cred(client->fd, &clnt->peer.cred);
 	galv_unix_make_endpt_string(client->peer, &clnt->peer);
@@ -143,8 +140,8 @@ galv_unix_binder_create_clnt(struct galv_binder * __restrict         binder,
                              int                                     flags,
                              struct galv_coupler * __restrict        coupler)
 {
-	galv_assert_intern((binder->sock_type == SOCK_STREAM) ||
-	                   (binder->sock_type == SOCK_SEQPACKET));
+	galv_assert_api((binder->sock_type == SOCK_STREAM) ||
+	                (binder->sock_type == SOCK_SEQPACKET));
 
 	int                     fd;
 	int                     err;
@@ -199,7 +196,7 @@ int
 galv_unix_binder_destroy_clnt(struct galv_binder * __restrict binder,
                               struct galv_conn * __restrict   client)
 {
-	galv_unix_assert_conn_intern((struct galv_unix_conn *)client);
+	galv_unix_assert_conn_api((struct galv_unix_conn *)client);
 
 	galv_conn_info(client, "unix", "destroying client connection..");
 
