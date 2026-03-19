@@ -10,6 +10,7 @@
 #include <stroll/page.h>
 #include <stroll/hlist.h>
 #include <utils/string.h>
+#include <sys/eventfd.h>
 
 #if defined(CONFIG_GALV_DEBUG)
 
@@ -965,3 +966,122 @@ galv_unix_gate_ucred_fini(struct galv_unix_gate_ucred * __restrict gate)
 }
 
 #endif /* defined(CONFIG_GALV_GATE) */
+
+/******************************************************************************
+ * Test fd
+ ******************************************************************************/
+static
+struct galv_conn *
+galv_fd_adopt_create_conn(struct galv_adopt * __restrict          adopter,
+                          const struct galv_conn_ops * __restrict operations,
+                          int                                     flags,
+                          struct galv_accept * __restrict         acceptor)
+{
+	galv_conn_assert_ops_intern(operations);
+	galv_assert_intern(!(flags & ETUX_SOCK_ACCEPT_INVALID_FLAGS));
+	galv_accept_assert_intern(acceptor);
+
+	struct galv_unix_endpt  peer;
+	socklen_t sz = sizeof(peer.cred);
+	struct galv_unix_conn * unc;
+	int                     err;
+	const char *            msg;
+	uint64_t                val;
+	int                     fd;
+
+	err = read(galv_adopt_fd(adopter), &val, sizeof(val));
+	if (err < 0) {
+		err = errno;
+		msg = "Cannot get fd from event fd";
+		goto err;
+	}
+	fd = (int)val;
+
+	peer.addr.size = 0;
+	unsk_getsockopt(fd, SO_PEERCRED, &peer.cred, &sz);
+	galv_assert_intern(sz == sizeof(peer.cred));
+
+	/* Allocate UNIX connection. */
+	unc = stroll_falloc_alloc(&adopter->alloc);
+	if (!unc) {
+		err = errno;
+		if (err == ENOMEM)
+			return NULL;
+
+		msg = "failed to allocate";
+		goto err;
+	}
+
+	/* Setup connection internal state. */
+	galv_conn_setup(&unc->base,
+	                fd,
+	                operations,
+	                (struct galv_dispatch *)acceptor);
+	unc->peer = peer;
+
+	galv_unix_conn_debug(&unc->peer, "service connection created");
+
+	return &unc->base;
+
+err:
+	galv_ratelim_pnotice(err,
+	                     "unix: cannot create service connection",
+	                     ": %s",
+	                     msg);
+	errno = err;
+
+	return NULL;
+}
+
+static
+int
+galv_fd_adopt_destroy_conn(struct galv_adopt * __restrict adopter,
+                           struct galv_conn * __restrict  connection)
+{
+	galv_conn_assert_intern(connection);
+
+	int ret;
+
+	ret = unsk_close(connection->fd);
+	if (ret && (ret != -EINTR))
+		galv_ratelim_pnotice(-ret,
+		                     "unix: failed to close service socket",
+		                     "");
+
+	galv_unix_conn_debug(&((const struct galv_unix_conn *)connection)->peer,
+	                     "service connection destroyed");
+
+	stroll_falloc_free(&adopter->alloc, connection);
+	return -ESHUTDOWN;
+}
+
+static const struct galv_adopt_ops galv_fd_adopt_ops = {
+	.create_conn  = galv_fd_adopt_create_conn,
+	.destroy_conn = galv_fd_adopt_destroy_conn
+};
+
+
+int
+galv_fd_adopt_open(struct galv_unix_adopt * __restrict adopter,
+                   struct galv_gate * __restrict       gate,
+                   int                                 fd)
+{
+	galv_assert_api(adopter);
+	galv_assert_api(fd >= 0);
+
+	int efd;
+
+	adopter->bind_addr.size = sizeof(adopter->bind_addr.data);
+	adopter->bind_addr.data.sun_path[0] = 0;
+	efd = eventfd((unsigned int)fd, EFD_NONBLOCK | EFD_CLOEXEC);
+	if (efd < 0)
+		return -errno;
+
+	galv_adopt_setup(&adopter->base,
+	                 &galv_fd_adopt_ops,
+	                 efd,
+	                 1,
+	                 sizeof(struct galv_unix_conn),
+	                 gate);
+	return 0;
+}

@@ -206,7 +206,7 @@ galv_accept_open(struct galv_accept * __restrict         acceptor,
 	int err;
 
 	err = etux_sock_listen(fd, (int)backlog);
-	if (err)
+	if (err && errno != ENOTSOCK)
 		return err;
 
 	acceptor->base.on_conn_term = galv_accept_on_conn_term;

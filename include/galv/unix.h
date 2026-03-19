@@ -143,4 +143,14 @@ galv_unix_gate_ucred_fini(struct galv_unix_gate_ucred * __restrict gate)
 
 #endif /* defined(CONFIG_GALV_GATE) */
 
+/******************************************************************************
+ * Test fd
+ ******************************************************************************/
+
+extern int
+galv_fd_adopt_open(struct galv_unix_adopt * __restrict adopter,
+                   struct galv_gate * __restrict       gate,
+                   int                                 fd)
+	__export_public;
+
 #endif /* _GALV_UNIX_H */
