@@ -215,7 +215,7 @@ galv_rpc_clnt_recv_msg(struct galv_rpc_clnt_msg * __restrict message)
 
 	if (head.flags !=
 	    ((GALV_SESS_HEAD_LAST_MULTI << GALV_SESS_HEAD_MULTI_FLAG_BIT) |
-	     (GALV_SESS_HEAD_REPLY_TYPE << GALV_SESS_HEAD_REPLY_TYPE)))
+	     (GALV_SESS_HEAD_REPLY_TYPE << GALV_SESS_HEAD_TYPE_FLAG_BIT)))
 		return -EPROTO;
 
 	if (head.xchg != 0)
