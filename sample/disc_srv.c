@@ -207,7 +207,7 @@ static const struct galv_conn_ops galvsmpl_discs_conn_ops = {
 
 static
 int
-galvsmpl_loop(struct galv_repo * repository, struct upoll * poller)
+galvsmpl_discs_loop(struct galv_repo * repository, struct upoll * poller)
 {
 	struct galvsmpl_sigchan sigs;
 	int                     ret;
@@ -280,7 +280,7 @@ main(void)
 		goto close_poll;
 	}
 
-	ret = galvsmpl_loop(&repo, &poll);
+	ret = galvsmpl_discs_loop(&repo, &poll);
 
 	galv_accept_close(&accept, &poll);
 

@@ -10,32 +10,32 @@
 #include "galv/coupler.h"
 #include "galv/client.h"
 
-#define GALVSMPL_DISC_CLNT_PATH    "sock"
-#define GALVSMPL_DISC_CLNT_CONN_NR (8U)
-#define GALVSMPL_DISC_CLNT_BULK_NR (4U)
-#define GALVSMPL_DISC_CLNT_TRIES   (-3)
-#define GALVSMPL_DISC_CLNT_MSECS   (500)
+#define GALVSMPL_DISCC_PATH    "sock"
+#define GALVSMPL_DISCC_CONN_NR (8U)
+#define GALVSMPL_DISCC_BULK_NR (4U)
+#define GALVSMPL_DISCC_TRIES   (-3)
+#define GALVSMPL_DISCC_MSECS   (500)
 
-static char galvsmpl_disc_clnt_buffer[1024];
+static char galvsmpl_discc_buffer[1024];
 
 static
 int
-galvsmpl_disc_clnt_send(struct galv_conn * connection)
+galvsmpl_discc_send(struct galv_conn * connection)
 {
-	unsigned int cnt = GALVSMPL_DISC_CLNT_BULK_NR;
+	unsigned int cnt = GALVSMPL_DISCC_BULK_NR;
 	ssize_t      ret;
 	size_t       bytes = 0;
 
-	/* Restrict to GALVSMPL_DISC_CLNT_BULK_NR send operations in a row. */
+	/* Restrict to GALVSMPL_DISCC_BULK_NR send operations in a row. */
 	do {
 		ret = galv_conn_send(connection,
-		                     galvsmpl_disc_clnt_buffer,
-		                     sizeof(galvsmpl_disc_clnt_buffer),
+		                     galvsmpl_discc_buffer,
+		                     sizeof(galvsmpl_discc_buffer),
 		                     MSG_NOSIGNAL);
 		galvsmpl_assert(ret);
 		if (ret > 0)
 			bytes += (size_t)ret;
-	} while ((ret == sizeof(galvsmpl_disc_clnt_buffer)) && --cnt);
+	} while ((ret == sizeof(galvsmpl_discc_buffer)) && --cnt);
 
 	if (bytes) {
 		unsigned long sum = (unsigned long)
@@ -46,7 +46,7 @@ galvsmpl_disc_clnt_send(struct galv_conn * connection)
 		galvsmpl_debug("%zu bytes sent", bytes);
 	}
 
-	if (ret == sizeof(galvsmpl_disc_clnt_buffer))
+	if (ret == sizeof(galvsmpl_discc_buffer))
 		return 0;
 	else if ((ret > 0) || (ret == -EAGAIN))
 		return -EAGAIN;
@@ -56,9 +56,9 @@ galvsmpl_disc_clnt_send(struct galv_conn * connection)
 
 static
 int
-galvsmpl_disc_process_established_clnt(struct upoll_worker * worker,
-                                       uint32_t              events,
-                                       const struct upoll *  poller)
+galvsmpl_discc_process_established(struct upoll_worker * worker,
+                                   uint32_t              events,
+                                   const struct upoll *  poller)
 {
 	galvsmpl_assert(!(events &
 	                  ~((uint32_t)
@@ -80,7 +80,7 @@ galvsmpl_disc_process_established_clnt(struct upoll_worker * worker,
 	if (events & EPOLLOUT)
 		galv_conn_unwatch(clnt, EPOLLOUT);
 
-	ret = galvsmpl_disc_clnt_send(clnt);
+	ret = galvsmpl_discc_send(clnt);
 	switch (ret) {
 	case 0:
 		break;
@@ -120,38 +120,37 @@ close:
 
 static
 int
-galvsmpl_disc_on_clnt_bound(struct galv_conn *   connection,
-                            const struct upoll * poller)
+galvsmpl_discc_on_bound(struct galv_conn *   connection,
+                        const struct upoll * poller)
 {
 	galv_conn_set_context(connection, (void *)0);
 	galv_conn_switch_state(connection,
 	                       GALV_CONN_ESTABLISHED_STATE,
-	                       galvsmpl_disc_process_established_clnt);
+	                       galvsmpl_discc_process_established);
 	galv_conn_reset_watch(connection, poller, EPOLLOUT | EPOLLRDHUP);
-	galvsmpl_info("connection established");
 
 	return 0;
 }
 
 static
 void
-galvsmpl_disc_close_clnt(struct galv_conn *   connection,
-                         const struct upoll * poller __unused)
+galvsmpl_discc_close(struct galv_conn *   connection,
+                     const struct upoll * poller __unused)
 {
 	unsigned long sum = (unsigned long)galv_conn_context(connection);
 
 	galvsmpl_info("sent %lu bytes overall", sum);
 }
 
-static const struct galv_conn_ops galvsmpl_disc_clnt_ops = {
-	.on_bound = galvsmpl_disc_on_clnt_bound,
+static const struct galv_conn_ops galvsmpl_discc_ops = {
+	.on_bound = galvsmpl_discc_on_bound,
 	.halt     = galv_conn_close,
-	.close    = galvsmpl_disc_close_clnt
+	.close    = galvsmpl_discc_close
 };
 
 static
 int
-galvsmpl_disc_clnt_process_round(struct upoll * poller)
+galvsmpl_discc_process_round(struct upoll * poller)
 {
 	int msecs = etux_timer_issue_msec();
 	int ret;
@@ -168,7 +167,7 @@ galvsmpl_disc_clnt_process_round(struct upoll * poller)
 
 static
 int
-galvsmpl_disc_clnt_loop(struct upoll * poller, struct galv_repo * repository)
+galvsmpl_discc_loop(struct upoll * poller, struct galv_repo * repository)
 {
 	struct galvsmpl_sigchan sigs;
 	int                     ret;
@@ -178,7 +177,7 @@ galvsmpl_disc_clnt_loop(struct upoll * poller, struct galv_repo * repository)
 		return ret;
 
 	do {
-		ret = galvsmpl_disc_clnt_process_round(poller);
+		ret = galvsmpl_discc_process_round(poller);
 	} while (!ret || (ret == -EINTR));
 	switch (ret) {
 	case -ESHUTDOWN:
@@ -201,20 +200,20 @@ main(void)
 {
 	struct galv_binder    bind;
 	struct galv_repo      repo = GALV_REPO_INIT(repo,
-	                                            GALVSMPL_DISC_CLNT_CONN_NR);
+	                                            GALVSMPL_DISCC_CONN_NR);
 	struct galv_coupler   cpl;
 	struct galv_conn *    clnt;
-	struct galv_unix_addr peer = GALV_UNIX_NAMED_ADDR(GALVSMPL_DISC_CLNT_PATH);
+	struct galv_unix_addr peer = GALV_UNIX_NAMED_ADDR(GALVSMPL_DISCC_PATH);
 	struct upoll          poll;
 	int                   ret;
 
 	galvsmpl_init();
 
-	galv_unix_binder_open(&bind, SOCK_STREAM, GALVSMPL_DISC_CLNT_CONN_NR);
+	galv_unix_binder_open(&bind, SOCK_STREAM, GALVSMPL_DISCC_CONN_NR);
 	galv_coupler_setup(&cpl,
 	                   &bind,
 	                   &repo,
-	                   &galvsmpl_disc_clnt_ops);
+	                   &galvsmpl_discc_ops);
 
 	clnt = galv_coupler_create_clnt(&cpl, SOCK_CLOEXEC);
 	if (!clnt) {
@@ -224,7 +223,7 @@ main(void)
 	}
 
 	/* Max number of connections * + 1 for signal channel */
-	ret = upoll_open(&poll, GALVSMPL_DISC_CLNT_CONN_NR + 1);
+	ret = upoll_open(&poll, GALVSMPL_DISCC_CONN_NR + 1);
 	if (ret) {
 		galvsmpl_perr(-ret, "failed to open poller");
 		goto destroy_clnt;
@@ -232,15 +231,15 @@ main(void)
 
 	ret = galv_clnt_connect(clnt,
 	                        (const struct sockaddr *)&peer,
-	                        GALVSMPL_DISC_CLNT_TRIES,
-	                        GALVSMPL_DISC_CLNT_MSECS,
+	                        GALVSMPL_DISCC_TRIES,
+	                        GALVSMPL_DISCC_MSECS,
 	                        &poll);
 	if (ret && (ret != -EINPROGRESS)) {
 		galvsmpl_perr(-ret, "failed to connect");
 		goto close_poll;
 	}
 
-	ret = galvsmpl_disc_clnt_loop(&poll, &repo);
+	ret = galvsmpl_discc_loop(&poll, &repo);
 
 close_poll:
 	upoll_close(&poll);

@@ -224,7 +224,7 @@ galv_unix_binder_open(struct galv_binder * __restrict binder,
 	                 &galv_unix_binder_ops,
 	                 sock_type,
 	                 max_conn,
-	                 sizeof(struct galv_conn));
+	                 sizeof(struct galv_unix_conn));
 
 	galv_debug("unix: binder opened");
 }

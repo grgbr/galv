@@ -411,10 +411,24 @@ galv_coupler_create_clnt(struct galv_coupler * __restrict coupler,
 	galv_coupler_assert_api(coupler);
 	galv_assert_api(!(flags & ETUX_SOCK_OPEN_INVALID_FLAGS));
 
-	return galv_binder_create_clnt(coupler->bind,
+	struct galv_conn * conn;
+
+	conn = galv_binder_create_clnt(coupler->bind,
 	                               coupler->conn_ops,
 	                               SOCK_NONBLOCK | flags,
 	                               coupler);
+	if (conn)
+		/*
+		 * Initialize user context to NULL to give clients the ability
+		 * to implement flexible / optimized (de)allocation strategies.
+		 *
+		 * Refer to galvsmpl_echoc_on_bound() in
+		 * <galv>/sample/echo_clnt.c to see how the number of calls to
+		 * malloc(3) is reduced.
+		 */
+		galv_conn_set_context(conn, NULL);
+
+	return conn;
 }
 
 int

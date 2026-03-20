@@ -29,7 +29,7 @@ galv-smpl-disc-srv-pkgconf   := libelog libutils
 bins                         += $(call kconf_enabled,GALV_SMPL_DISC_CLNT, \
                                                      galv-smpl-disc-clnt)
 galv-smpl-disc-clnt-objs     := $(call kconf_enabled,GALV_SMPL_DISC_CLNT, \
-                                                    disc_clnt.o)
+                                                     disc_clnt.o)
 galv-smpl-disc-clnt-cflags   := $(common-cflags)
 galv-smpl-disc-clnt-ldflags  := $(smpl-ldflags) -lgalv_async_clnt
 galv-smpl-disc-clnt-pkgconf  := libelog libutils $(timer-pkgconf)
@@ -38,8 +38,8 @@ bins                         += $(call kconf_enabled,GALV_SMPL_ECHO_CLNT, \
                                                      galv-smpl-echo-clnt)
 galv-smpl-echo-clnt-objs     := $(call kconf_enabled,GALV_SMPL_ECHO_CLNT, \
                                                      echo_clnt.o)
-galv-smpl-echo-clnt-cflags   := $(common-cflags) -lgalv_async_clnt
-galv-smpl-echo-clnt-ldflags  := $(smpl-ldflags)
+galv-smpl-echo-clnt-cflags   := $(common-cflags)
+galv-smpl-echo-clnt-ldflags  := $(smpl-ldflags) -lgalv_async_clnt
 galv-smpl-echo-clnt-pkgconf  := libelog libutils $(timer-pkgconf)
 
 bins                         += $(call kconf_enabled,GALV_SMPL_ECHO_SRV, \

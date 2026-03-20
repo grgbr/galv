@@ -10,7 +10,7 @@
 #include "galv/accept.h"
 
 #define GALVSMPL_ECHOS_PATH    "sock"
-#define GALVSMPL_ECHO_BACKLOG  16
+#define GALVSMPL_ECHOS_BACKLOG 16
 #define GALVSMPL_ECHOS_CONN_NR (32U)
 #define GALVSMPL_ECHOS_BULK_NR (4U)
 
@@ -108,6 +108,8 @@ galvsmpl_echos_back(struct galvsmpl_echos * echo)
 		switch (ret) {
 STROLL_IGNORE_WARN("-Wimplicit-fallthrough")
 		case -ENOBUFS:
+			galvsmpl_info(
+				"transient outgoing connection congestion");
 			galv_conn_unwatch(echo->conn, EPOLLIN);
 STROLL_RESTORE_WARN
 		case -EAGAIN:
@@ -424,7 +426,7 @@ main(void)
 	ret = galv_accept_open(&accept,
 	                       &repo,
 	                       (struct galv_adopt *)&adopt,
-	                       GALVSMPL_ECHO_BACKLOG,
+	                       GALVSMPL_ECHOS_BACKLOG,
 	                       &galvsmpl_echos_conn_ops,
 	                       SOCK_CLOEXEC,
 	                       &poll);
