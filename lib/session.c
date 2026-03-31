@@ -1818,12 +1818,12 @@ galv_sess_complete_send_msg(struct galv_sess_msg * __restrict message)
 	/* Queue current buffer. */
 	stroll_slist_nqueue_back(&message->send.buffq,
 	                         &message->send.buff->node);
-
-#if defined(CONFIG_GALV_ASSERT_INTERN)
+#warning Fix me
+//#if defined(CONFIG_GALV_ASSERT_INTERN)
 	message->state = GALV_SESS_SGMT_COMPLETE_STAT;
 	message->send.buff = NULL;
 	message->send.head = NULL;
-#endif /* defined(CONFIG_GALV_ASSERT_INTERN) */
+//#endif /* defined(CONFIG_GALV_ASSERT_INTERN) */
 }
 
 static
