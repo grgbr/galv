@@ -506,7 +506,7 @@ main(void)
 		                        GALVSMPL_ECHOC_TRIES,
 		                        GALVSMPL_ECHOC_MSECS,
 		                        &poll);
-		if (ret) {
+		if (ret && (ret != -EINPROGRESS)) {
 			galvsmpl_perr(-ret, "failed to connect");
 			goto close_clnt;
 		}

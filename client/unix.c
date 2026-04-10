@@ -82,6 +82,8 @@ galv_unix_binder_connect_clnt(
 	return _galv_unix_binder_connect_clnt(binder, clnt);
 }
 
+#if 1
+
 static
 int
 galv_unix_binder_reconnect_clnt(
@@ -98,6 +100,64 @@ galv_unix_binder_reconnect_clnt(
 	return _galv_unix_binder_connect_clnt(binder,
 	                                      (struct galv_unix_conn *)client);
 }
+
+#else
+
+static
+int
+galv_unix_binder_reconnect_clnt(
+	const struct galv_binder * __restrict binder,
+	struct galv_conn * __restrict         client)
+{
+	galv_assert_api((binder->sock_type == SOCK_STREAM) ||
+	                (binder->sock_type == SOCK_SEQPACKET));
+	galv_unix_assert_conn_api((struct galv_unix_conn *)client);
+
+	struct galv_unix_conn * clnt = (struct galv_unix_conn *)client;
+	int                     ret;
+
+	galv_conn_debug(client, "unix", "retrying client connection..");
+
+	/*
+	 * As stated into connect(2), we should consider the state of the socket
+	 * as unspecified in case of failure: open a new socket, close the old
+	 * one and try to perform the connect(2) again.
+	 *
+	 * Note that we prefer to open the new socket first and close the old
+	 * one afterward so that a potential socket(2) failure does not leave
+	 * the whole Galv internal state machine with no valid file descriptor
+	 * at all upon return from this function (galv_coupler, galv_conn and
+	 * galv_unix_conn highly depend on its presence).
+	 *
+	 * Note: This does not seem to be necessary on Linux...
+	 */
+
+	/*
+	 * Open the new socket first using the flags that were passed at initial
+	 * opening time...
+	 */
+	ret = unsk_open(binder->sock_type,
+	                SOCK_NONBLOCK | etux_sock_getfd(client->fd));
+	if (ret < 0) {
+		galv_conn_pinfo(client,
+		                -ret,
+		                "unix",
+		                "cannot reopen client socket");
+		return ret;
+	}
+
+	/*
+	 *  ... then close the old one to keep a valid file descriptor in
+	 * `client->fd' in case of failure.
+	 */
+	unsk_close(client->fd);
+	client->fd = ret;
+
+	/* Connect(2) again using currently stored remote peer address. */
+	return _galv_unix_binder_connect_clnt(binder, clnt);
+}
+
+#endif
 
 static
 void

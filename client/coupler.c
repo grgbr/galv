@@ -386,6 +386,7 @@ galv_coupler_connect(struct galv_coupler * __restrict   coupler,
 	 * an EPOLLHUP event at next polling round.
 	 * Arm the reconnection timer instead and get out.
 	 */
+	galv_conn_set_state(client, GALV_CONN_BINDING_STATE);
 	galv_timer_arm_bkoff(tmr);
 	galv_conn_pdebug(client,
 	                 -ret,
