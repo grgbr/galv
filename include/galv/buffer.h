@@ -246,7 +246,7 @@ galv_buff_init_queue(struct galv_buff_queue * __restrict queue)
 
 static inline
 void
-galv_buff_fini_queue(struct galv_buff_queue * __restrict queue)
+galv_buff_fini_queue(struct galv_buff_queue * __restrict queue __unused)
 {
 	galv_buff_assert_queue_api(queue);
 	galv_assert_api(galv_buff_queue_empty(queue));
