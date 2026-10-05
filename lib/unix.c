@@ -144,7 +144,7 @@ galv_unix_binder_on_connected(
 	galv_assert_intern(addr->data.sun_family == AF_UNIX);
 	galv_assert_intern(unsk_is_named_addr(&addr->data, addr->size));
 
-	unsk_getsockopt(client->fd, SO_PEERCRED, cred, &sz);
+	unsk_getopt(client->fd, SO_PEERCRED, cred, &sz);
 	galv_assert_intern(sz == sizeof(*cred));
 
 	galv_ratelim_info("unix: client connection established",
@@ -349,7 +349,7 @@ galv_unix_accept(int                                 fd,
 	if (sk < 0)
 		return sk;
 
-	unsk_getsockopt(sk, SO_PEERCRED, &peer->cred, &sz);
+	unsk_getopt(sk, SO_PEERCRED, &peer->cred, &sz);
 	galv_assert_intern(sz == sizeof(peer->cred));
 
 	return sk;
@@ -998,7 +998,7 @@ galv_fd_adopt_create_conn(struct galv_adopt * __restrict          adopter,
 	fd = (int)val;
 
 	peer.addr.size = 0;
-	unsk_getsockopt(fd, SO_PEERCRED, &peer.cred, &sz);
+	unsk_getopt(fd, SO_PEERCRED, &peer.cred, &sz);
 	galv_assert_intern(sz == sizeof(peer.cred));
 
 	/* Allocate UNIX connection. */

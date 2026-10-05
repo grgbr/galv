@@ -372,7 +372,7 @@ galv_unix_conn_accept(struct galv_unix_conn * __restrict conn,
 	if (fd < 0)
 		return fd;
 
-	unsk_getsockopt(fd, SO_PEERCRED, &conn->peer_cred, &sz);
+	unsk_getopt(fd, SO_PEERCRED, &conn->peer_cred, &sz);
 	galv_unix_assert_intern(sz == sizeof(conn->peer_cred));
 
 	conn->base.fd = fd;
@@ -714,7 +714,7 @@ galv_unix_accept(int                                 listen,
 	if (fd < 0)
 		return fd;
 
-	unsk_getsockopt(fd, SO_PEERCRED, &unix->peer_cred, &sz);
+	unsk_getopt(fd, SO_PEERCRED, &unix->peer_cred, &sz);
 	galv_unix_assert_intern(sz == sizeof(unix->peer_cred));
 
 	return 0;
